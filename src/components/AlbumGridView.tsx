@@ -24,7 +24,11 @@ import {
   AlbumViewLayoutStyle,
 } from '../types/index.ts';
 import { formatDuration } from '../utils/audioMath.ts';
-import { jellyfin, inferAlbumReleaseType } from '../services/jellyfinService.ts';
+import {
+  jellyfin,
+  inferAlbumReleaseType,
+  getAlbumReleaseTypeOverride,
+} from '../services/jellyfinService.ts';
 import { resolveCoverArt, handleCoverImgError } from '../utils/jellywispArtwork.ts';
 
 interface AlbumGridViewProps {
@@ -49,6 +53,7 @@ interface AlbumGridViewProps {
   onSearchAlbumArt?: (query: string, album?: Album) => void;
   onContextMenuTrack?: (e: React.MouseEvent, track: Track) => void;
   onContextMenuAlbum?: (e: React.MouseEvent, album: Album) => void;
+  onContextMenuArtist?: (e: React.MouseEvent, artistName: string) => void;
   layoutConfig?: LayoutConfig;
   onUpdateLayout?: (partial: Partial<LayoutConfig>) => void;
 }
@@ -111,8 +116,13 @@ export const RELEASE_TYPE_META: {
 ];
 
 export function getAlbumReleaseType(album: Album): AlbumReleaseType {
+  const override = getAlbumReleaseTypeOverride(album.id, album.title, album.artist);
+  if (override) return override;
   const trackCount = album.tracks?.length || album.trackCount || 0;
-  return album.releaseType || inferAlbumReleaseType(album.id, album.title, trackCount, 0);
+  return (
+    album.releaseType ||
+    inferAlbumReleaseType(album.id, album.title, trackCount, album.totalDuration || 0, album.artist)
+  );
 }
 
 export function getReleaseTypeBadge(type: AlbumReleaseType) {
@@ -135,6 +145,7 @@ export const AlbumGridView: React.FC<AlbumGridViewProps> = ({
   onSearchAlbumArt,
   onContextMenuTrack,
   onContextMenuAlbum,
+  onContextMenuArtist,
   layoutConfig,
   onUpdateLayout,
 }) => {
@@ -234,7 +245,8 @@ export const AlbumGridView: React.FC<AlbumGridViewProps> = ({
     e.stopPropagation();
     const albumId = e.dataTransfer.getData('application/x-jellywisp-album') || draggedAlbumId;
     if (albumId && onReclassifyAlbum) {
-      onReclassifyAlbum(albumId, targetType);
+      const targetAlbum = albums.find((a) => a.id === albumId);
+      onReclassifyAlbum(albumId, targetType, targetAlbum?.title, targetAlbum?.artist);
     }
     setDraggedAlbumId(null);
     setDropTargetType(null);
@@ -402,7 +414,12 @@ export const AlbumGridView: React.FC<AlbumGridViewProps> = ({
                   <select
                     value={currentRelType}
                     onChange={(e) =>
-                      onReclassifyAlbum(liveAlbum.id, e.target.value as AlbumReleaseType)
+                      onReclassifyAlbum(
+                        liveAlbum.id,
+                        e.target.value as AlbumReleaseType,
+                        liveAlbum.title,
+                        liveAlbum.artist
+                      )
                     }
                     className="bg-transparent text-[11px] font-bold text-white focus:outline-none cursor-pointer"
                   >
@@ -423,8 +440,13 @@ export const AlbumGridView: React.FC<AlbumGridViewProps> = ({
             <div className="flex flex-wrap items-center gap-2 text-sm font-medium">
               <button
                 onClick={() => onNavigateToArtist?.(liveAlbum.artist)}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  onContextMenuArtist?.(e, liveAlbum.artist);
+                }}
                 className="jw-text-artist hover:underline font-bold flex items-center gap-1"
-                title="View Artist Discography"
+                title="Click for Artist Discography • Right-click for Artist Options"
               >
                 <User className="w-3.5 h-3.5 text-[var(--fin-accent)]" />
                 <span>{liveAlbum.artist}</span>
@@ -517,7 +539,13 @@ export const AlbumGridView: React.FC<AlbumGridViewProps> = ({
                             onNavigateToArtist(t.artist);
                           }
                         }}
+                        onContextMenu={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          onContextMenuArtist?.(e, t.artist);
+                        }}
                         className="text-[11px] jw-text-artist hover:underline w-fit"
+                        title="Click for Artist Discography • Right-click for Artist Options"
                       >
                         {t.artist}
                       </p>
@@ -638,8 +666,13 @@ export const AlbumGridView: React.FC<AlbumGridViewProps> = ({
                 onNavigateToArtist(album.artist);
               }
             }}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              onContextMenuArtist?.(e, album.artist);
+            }}
             className="text-[11px] jw-text-artist hover:underline truncate mt-0.5"
-            title={`Go to ${album.artist}`}
+            title={`Click to go to ${album.artist} • Right-click for Artist Options`}
           >
             {album.artist}
           </p>
@@ -672,12 +705,12 @@ export const AlbumGridView: React.FC<AlbumGridViewProps> = ({
       <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-white/5 shrink-0">
         <div>
           <h2 className="text-xl font-bold text-white tracking-tight">Music Albums</h2>
-          <p className="text-xs text-slate-400 mt-0.5">
+          <p className="text-xs text-slate-400 mt-0.5 tabular-nums">
             {sortedAndFilteredAlbums.length.toLocaleString()}
             {displayTotal > sortedAndFilteredAlbums.length
               ? ` of ${displayTotal.toLocaleString()}`
               : ''}{' '}
-            releases • Drag any album card onto a category tab below to sort it into Studio, Live, Bootleg, Singles, or EPs
+            releases
           </p>
         </div>
 
@@ -909,18 +942,18 @@ export const AlbumGridView: React.FC<AlbumGridViewProps> = ({
                       >
                         {rt.label}
                       </span>
-                      <span className="text-xs font-mono text-slate-400">
-                        {shelfAlbums.length} releases
+                      <span className="text-xs font-mono text-slate-400 tabular-nums">
+                        {shelfAlbums.length}
                       </span>
                     </div>
-                    <span className="text-[11px] font-mono text-slate-500">
-                      Drag any album onto this shelf to move it into {rt.label}
-                    </span>
                   </div>
 
                   {shelfAlbums.length === 0 ? (
-                    <div className="py-6 border border-dashed border-white/10 rounded-xl text-center text-xs text-slate-500">
-                      Drag &amp; drop an album card here to classify it under {rt.label}
+                    <div
+                      title={`Drag an album card here to classify it under ${rt.label}`}
+                      className="py-5 border border-dashed border-white/10 rounded-xl text-center text-xs text-slate-500"
+                    >
+                      No {rt.label.toLowerCase()}
                     </div>
                   ) : (
                     <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 lg:grid-cols-6 gap-4">
@@ -987,7 +1020,13 @@ export const AlbumGridView: React.FC<AlbumGridViewProps> = ({
                             onNavigateToArtist(album.artist);
                           }
                         }}
-                        className="text-xs jw-text-artist hover:underline truncate mt-0.5"
+                        onContextMenu={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          onContextMenuArtist?.(e, album.artist);
+                        }}
+                        className="text-xs jw-text-artist hover:underline truncate mt-0.5 w-fit"
+                        title="Click for Artist Discography • Right-click for Artist Options"
                       >
                         {album.artist}
                       </p>
@@ -1047,7 +1086,13 @@ export const AlbumGridView: React.FC<AlbumGridViewProps> = ({
                             onNavigateToArtist(album.artist);
                           }
                         }}
+                        onContextMenu={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          onContextMenuArtist?.(e, album.artist);
+                        }}
                         className="text-[11px] jw-text-artist hover:underline truncate w-fit"
+                        title="Click for Artist Discography • Right-click for Artist Options"
                       >
                         {album.artist}
                       </p>
@@ -1062,7 +1107,12 @@ export const AlbumGridView: React.FC<AlbumGridViewProps> = ({
                         onClick={(e) => e.stopPropagation()}
                         onChange={(e) => {
                           e.stopPropagation();
-                          onReclassifyAlbum(album.id, e.target.value as AlbumReleaseType);
+                          onReclassifyAlbum(
+                            album.id,
+                            e.target.value as AlbumReleaseType,
+                            album.title,
+                            album.artist
+                          );
                         }}
                         className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded border cursor-pointer focus:outline-none ${relBadge.badgeClass}`}
                       >

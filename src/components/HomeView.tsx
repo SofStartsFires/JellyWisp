@@ -19,6 +19,7 @@ import {
 import { Track, Album, Artist, LayoutConfig, JellyfinServerConfig } from '../types/index.ts';
 import { resolveCoverArt, handleCoverImgError } from '../utils/jellywispArtwork.ts';
 import { formatDuration } from '../utils/audioMath.ts';
+import { computeArtistStatsMap } from '../utils/libraryHelpers.ts';
 import { NavView } from './Sidebar.tsx';
 import { PRESET_MOOD_PROFILES } from '../utils/moodMatrix.ts';
 
@@ -42,6 +43,7 @@ interface HomeViewProps {
   onNavigateToArtist: (artistName: string) => void;
   onContextMenuTrack?: (e: React.MouseEvent, track: Track) => void;
   onContextMenuAlbum?: (e: React.MouseEvent, album: Album) => void;
+  onContextMenuArtist?: (e: React.MouseEvent, artistOrName: Artist | string) => void;
   serverConfig?: JellyfinServerConfig;
   serverName?: string;
   isConnected?: boolean;
@@ -69,6 +71,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
   onNavigateToArtist,
   onContextMenuTrack,
   onContextMenuAlbum,
+  onContextMenuArtist,
   serverConfig,
   serverName,
   isConnected,
@@ -87,6 +90,12 @@ export const HomeView: React.FC<HomeViewProps> = ({
     featuredArtistsCount: 8,
     showSmartMixes: true,
   };
+
+  // Accurate per-artist album count, track count, and portrait map from library albums & tracks
+  const artistStatsMap = React.useMemo(
+    () => computeArtistStatsMap(artists, albums, tracks),
+    [artists, albums, tracks]
+  );
 
   // Most Played / Heavy Rotation Tracks (sorted by playCount descending, with robust fallbacks)
   const heavyRotationTracks = React.useMemo(() => {
@@ -110,21 +119,36 @@ export const HomeView: React.FC<HomeViewProps> = ({
       .slice(0, homeHc.recentAlbumsCount || 8);
   }, [albums, homeHc.recentAlbumsCount]);
 
-  // Top Artists in library (by track count or albums, deduplicated)
+  // Top Artists in library (sorted by real album count & track count, deduplicated)
   const topArtists = React.useMemo(() => {
     const seen = new Set<string>();
     const list: Artist[] = [];
-    for (const art of [...artists].sort(
-      (a, b) => (b.trackCount || 0) - (a.trackCount || 0) || (b.albums?.length || 0) - (a.albums?.length || 0)
-    )) {
+    const sorted = [...artists].sort((a, b) => {
+      const stA = artistStatsMap.get(a.name.trim().toLowerCase());
+      const stB = artistStatsMap.get(b.name.trim().toLowerCase());
+      const albA = stA?.albumCount ?? a.albums?.length ?? 0;
+      const albB = stB?.albumCount ?? b.albums?.length ?? 0;
+      if (albB !== albA) return albB - albA;
+      const trkA = stA?.trackCount ?? a.trackCount ?? 0;
+      const trkB = stB?.trackCount ?? b.trackCount ?? 0;
+      return trkB - trkA || a.name.localeCompare(b.name);
+    });
+
+    for (const art of sorted) {
       const nameKey = (art.name || '').trim().toLowerCase();
       if (nameKey && !seen.has(nameKey)) {
         seen.add(nameKey);
-        list.push(art);
+        const st = artistStatsMap.get(nameKey);
+        list.push({
+          ...art,
+          coverUrl: st?.coverUrl || art.coverUrl,
+          albums: st?.albums?.length ? st.albums : art.albums,
+          trackCount: st?.trackCount ?? art.trackCount,
+        });
       }
     }
     return list.slice(0, homeHc.featuredArtistsCount || 8);
-  }, [artists, homeHc.featuredArtistsCount]);
+  }, [artists, artistStatsMap, homeHc.featuredArtistsCount]);
 
   // Qualifying Smart Mixes (>= 20 tracks)
   const quickMixes = React.useMemo(() => {
@@ -261,11 +285,38 @@ export const HomeView: React.FC<HomeViewProps> = ({
                   />
 
                   <div className="min-w-0 flex-1">
-                    <p className="text-xs font-bold truncate group-hover:text-cyan-400 transition">
+                    <p
+                      onClick={() => onPlayTrack(t, heavyRotationTracks, idx)}
+                      className="text-xs font-bold truncate group-hover:text-cyan-400 transition cursor-pointer"
+                    >
                       {t.title}
                     </p>
                     <p className="text-[11px] text-slate-400 truncate">
-                      {t.artist} • <span className="text-slate-500">{t.album}</span>
+                      <span
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onNavigateToArtist(t.artist);
+                        }}
+                        onContextMenu={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          onContextMenuArtist?.(e, t.artist);
+                        }}
+                        className="hover:underline hover:text-cyan-300 cursor-pointer"
+                        title="Click for Artist Discography • Right-click for Artist Options"
+                      >
+                        {t.artist}
+                      </span>{' '}
+                      •{' '}
+                      <span
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onNavigateToAlbum(t.album, t.albumId);
+                        }}
+                        className="text-slate-500 hover:underline hover:text-slate-300 cursor-pointer"
+                      >
+                        {t.album}
+                      </span>
                     </p>
                   </div>
                 </div>
@@ -329,7 +380,21 @@ export const HomeView: React.FC<HomeViewProps> = ({
                 <h3 className="text-xs font-bold text-white truncate group-hover:text-cyan-400 transition">
                   {album.title}
                 </h3>
-                <p className="text-[11px] text-slate-400 truncate">{album.artist}</p>
+                <p
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onNavigateToArtist(album.artist);
+                  }}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    onContextMenuArtist?.(e, album.artist);
+                  }}
+                  className="text-[11px] text-slate-400 hover:text-cyan-300 hover:underline truncate"
+                  title="Click for Artist Discography • Right-click for Artist Options"
+                >
+                  {album.artist}
+                </p>
                 <p className="text-[10px] font-mono text-slate-500">{album.year || '2024'} • {album.trackCount || album.tracks?.length || 0} tracks</p>
               </div>
             </div>
@@ -354,30 +419,42 @@ export const HomeView: React.FC<HomeViewProps> = ({
         </div>
 
         <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-8 gap-4">
-          {topArtists.map((artist) => (
-            <div
-              key={artist.id}
-              onClick={() => onNavigateToArtist(artist.name)}
-              className="group cursor-pointer flex flex-col items-center text-center space-y-2"
-            >
-              <div className="relative w-20 h-20 sm:w-24 sm:h-24 rounded-full overflow-hidden bg-black/40 border border-white/10 shadow-lg group-hover:border-cyan-400/50 transition">
-                <img
-                  src={resolveCoverArt(artist.coverUrl)}
-                  onError={handleCoverImgError}
-                  alt={artist.name}
-                  className="w-full h-full object-cover group-hover:scale-105 transition duration-300"
-                />
+          {topArtists.map((artist) => {
+            const st = artistStatsMap.get(artist.name.trim().toLowerCase());
+            const realAlbumCount = st?.albumCount ?? artist.albums?.length ?? 0;
+            const realTrackCount = st?.trackCount ?? artist.trackCount ?? 0;
+            return (
+              <div
+                key={artist.id}
+                onClick={() => onNavigateToArtist(artist.name)}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  onContextMenuArtist?.(e, artist);
+                }}
+                title="Click to open Discography • Right-click for Artist Options & Artwork Search"
+                className="group cursor-pointer flex flex-col items-center text-center space-y-2"
+              >
+                <div className="relative w-20 h-20 sm:w-24 sm:h-24 rounded-full overflow-hidden bg-black/40 border border-white/10 shadow-lg group-hover:border-cyan-400/50 transition">
+                  <img
+                    src={resolveCoverArt(st?.coverUrl || artist.coverUrl)}
+                    onError={handleCoverImgError}
+                    alt={artist.name}
+                    className="w-full h-full object-cover group-hover:scale-105 transition duration-300"
+                  />
+                </div>
+                <div className="min-w-0 w-full px-1">
+                  <h3 className="text-xs font-bold text-white truncate group-hover:text-cyan-400 transition">
+                    {artist.name}
+                  </h3>
+                  <p className="text-[10px] font-mono text-slate-400 truncate">
+                    {realAlbumCount} {realAlbumCount === 1 ? 'album' : 'albums'}
+                    {realTrackCount > 0 ? ` • ${realTrackCount} trks` : ''}
+                  </p>
+                </div>
               </div>
-              <div className="min-w-0 w-full px-1">
-                <h3 className="text-xs font-bold text-white truncate group-hover:text-cyan-400 transition">
-                  {artist.name}
-                </h3>
-                <p className="text-[10px] font-mono text-slate-400 truncate">
-                  {artist.albums?.length || Math.max(1, Math.round((artist.trackCount || 0) / 10))} albums
-                </p>
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </section>
 

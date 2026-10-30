@@ -60,6 +60,9 @@ interface PlayerBarProps {
   onToggleMiniPlayer: () => void;
   onOpenMetadataEditor: (track: Track) => void;
   onOpenDedicatedPlayer?: () => void;
+  onNavigateToArtist?: (artistName: string) => void;
+  onContextMenuArtist?: (e: React.MouseEvent, artistName: string) => void;
+  onContextMenuTrack?: (e: React.MouseEvent, track: Track) => void;
   layoutConfig?: LayoutConfig;
   onChangePosition?: (pos: PlayerPosition) => void;
   onUpdateLayout?: (partial: Partial<LayoutConfig>) => void;
@@ -93,6 +96,9 @@ export const PlayerBar: React.FC<PlayerBarProps> = ({
   onToggleVisualizer,
   onToggleMiniPlayer,
   onOpenDedicatedPlayer,
+  onNavigateToArtist,
+  onContextMenuArtist,
+  onContextMenuTrack,
   layoutConfig,
   onChangePosition,
   onUpdateLayout,
@@ -408,13 +414,35 @@ export const PlayerBar: React.FC<PlayerBarProps> = ({
 
               <div
                 onClick={() => onOpenDedicatedPlayer?.()}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  if (onContextMenuArtist) {
+                    onContextMenuArtist(e, currentTrack.artist);
+                  } else if (onContextMenuTrack) {
+                    onContextMenuTrack(e, currentTrack);
+                  }
+                }}
                 className="cursor-pointer group max-w-full px-2"
-                title="Click to open Dedicated Track Player"
+                title="Click to open Dedicated Player • Right-click Artist for Artist Options"
               >
                 <h3 className="text-sm font-bold jw-text-track group-hover:text-[var(--fin-accent)] truncate transition">
                   {currentTrack.title}
                 </h3>
-                <p className="text-xs jw-text-artist group-hover:text-white truncate mt-0.5 transition">
+                <p
+                  onClick={(e) => {
+                    if (onNavigateToArtist) {
+                      e.stopPropagation();
+                      onNavigateToArtist(currentTrack.artist);
+                    }
+                  }}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    onContextMenuArtist?.(e, currentTrack.artist);
+                  }}
+                  className="text-xs jw-text-artist hover:underline group-hover:text-white truncate mt-0.5 transition"
+                  title="Click for Artist Discography • Right-click for Artist Options & Artwork Search"
+                >
                   {currentTrack.artist}
                 </p>
                 <p className="text-[11px] jw-text-album truncate mt-0.5">
@@ -754,7 +782,21 @@ export const PlayerBar: React.FC<PlayerBarProps> = ({
                 )}
               </div>
 
-              <p className="text-[10px] sm:text-[11px] jw-text-artist group-hover:text-white truncate mt-0.5 transition">
+              <p
+                onClick={(e) => {
+                  if (onNavigateToArtist) {
+                    e.stopPropagation();
+                    onNavigateToArtist(currentTrack.artist);
+                  }
+                }}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  onContextMenuArtist?.(e, currentTrack.artist);
+                }}
+                className="text-[10px] sm:text-[11px] jw-text-artist hover:underline group-hover:text-white truncate mt-0.5 transition w-fit"
+                title="Click for Artist Discography • Right-click for Artist Options & Artwork Search"
+              >
                 {currentTrack.artist}
               </p>
 

@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useRef, useState, useMemo, useEffect } from 'react';
 import {
   Server,
   Activity,
@@ -14,22 +14,41 @@ import {
   Move,
   GripVertical,
   ZoomIn,
-  PanelTop,
-  PanelBottom,
   Lock,
   Unlock,
   Square,
+  Users,
+  UserCheck,
+  Disc,
+  Music,
+  Play,
+  CornerDownLeft,
 } from 'lucide-react';
 import {
   JellyfinServerConfig,
   Track,
+  Album,
+  Artist,
   LayoutConfig,
   DraggableSectionId,
 } from '../types/index.ts';
+import { searchGlobalLibrary, GlobalSearchTarget, computeArtistStatsMap } from '../utils/libraryHelpers.ts';
+import { resolveCoverArt, handleCoverImgError } from '../utils/jellywispArtwork.ts';
 
 interface SearchBarSectionProps {
   searchQuery: string;
   onSearchChange: (query: string) => void;
+  artists?: Artist[];
+  albumArtists?: Artist[];
+  albums?: Album[];
+  tracks?: Track[];
+  onNavigateToArtist?: (artistName: string) => void;
+  onNavigateToAlbumArtist?: (artistName: string) => void;
+  onNavigateToAlbum?: (albumTitle: string, albumId?: string) => void;
+  onPlayTrack?: (track: Track, contextTracks?: Track[], index?: number) => void;
+  onContextMenuArtist?: (e: React.MouseEvent, artistOrName: Artist | string) => void;
+  onContextMenuAlbum?: (e: React.MouseEvent, album: Album) => void;
+  onContextMenuTrack?: (e: React.MouseEvent, track: Track) => void;
   layoutConfig?: LayoutConfig;
   onUpdateLayout?: (partial: Partial<LayoutConfig>) => void;
   onDragStartSection?: (section: DraggableSectionId) => void;
@@ -40,6 +59,17 @@ interface SearchBarSectionProps {
 export const SearchBarSection: React.FC<SearchBarSectionProps> = ({
   searchQuery,
   onSearchChange,
+  artists = [],
+  albumArtists = [],
+  albums = [],
+  tracks = [],
+  onNavigateToArtist,
+  onNavigateToAlbumArtist,
+  onNavigateToAlbum,
+  onPlayTrack,
+  onContextMenuArtist,
+  onContextMenuAlbum,
+  onContextMenuTrack,
   layoutConfig,
   onUpdateLayout,
   onDragStartSection,
@@ -47,17 +77,121 @@ export const SearchBarSection: React.FC<SearchBarSectionProps> = ({
   isHeroDeck = false,
 }) => {
   const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
   const [showSizePopover, setShowSizePopover] = useState(false);
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const [selectedIndex, setSelectedIndex] = useState(0);
 
   const maxWidthPx = layoutConfig?.searchBarMaxWidthPx ?? 860;
   const heightPx = layoutConfig?.searchBarHeightPx ?? 46;
   const fontSizePx = layoutConfig?.searchBarFontSizePx ?? 15;
   const pos = layoutConfig?.searchBarPosition || 'titlebar';
-
   const isLocked = layoutConfig?.layoutLocked ?? true;
+
+  const artistStatsMap = useMemo(
+    () => computeArtistStatsMap(artists, albums, tracks),
+    [artists, albums, tracks]
+  );
+
+  const globalResults = useMemo(
+    () =>
+      searchGlobalLibrary(
+        searchQuery,
+        { artists, albumArtists, albums, tracks },
+        5
+      ),
+    [searchQuery, artists, albumArtists, albums, tracks]
+  );
+
+  // Deduplicate Album Artists that already appear in Artists for cleaner dropdown
+  const distinctAlbumArtists = useMemo(() => {
+    const artistNames = new Set(globalResults.artists.map((a) => a.name.trim().toLowerCase()));
+    return globalResults.albumArtists.filter(
+      (aa) => !artistNames.has(aa.name.trim().toLowerCase())
+    );
+  }, [globalResults]);
+
+  // Flat list of selectable targets for keyboard navigation & Enter key
+  const flatTargets = useMemo<GlobalSearchTarget[]>(() => {
+    const list: GlobalSearchTarget[] = [];
+    for (const a of globalResults.artists) list.push({ type: 'artist', artist: a });
+    for (const aa of distinctAlbumArtists) list.push({ type: 'album-artist', artist: aa });
+    for (const alb of globalResults.albums) list.push({ type: 'album', album: alb });
+    for (const tr of globalResults.tracks) list.push({ type: 'track', track: tr });
+    return list;
+  }, [globalResults, distinctAlbumArtists]);
+
+  useEffect(() => {
+    setSelectedIndex(0);
+  }, [searchQuery]);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setIsDropdownOpen(false);
+      }
+    };
+    window.addEventListener('mousedown', handleClickOutside);
+    return () => window.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const executeTarget = (target: GlobalSearchTarget) => {
+    setIsDropdownOpen(false);
+    if (target.type === 'artist') {
+      onSearchChange('');
+      onNavigateToArtist?.(target.artist.name);
+    } else if (target.type === 'album-artist') {
+      onSearchChange('');
+      if (onNavigateToAlbumArtist) {
+        onNavigateToAlbumArtist(target.artist.name);
+      } else {
+        onNavigateToArtist?.(target.artist.name);
+      }
+    } else if (target.type === 'album') {
+      onSearchChange('');
+      onNavigateToAlbum?.(target.album.title, target.album.id);
+    } else if (target.type === 'track') {
+      onPlayTrack?.(target.track, globalResults.tracks, 0);
+    }
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Escape') {
+      setIsDropdownOpen(false);
+      return;
+    }
+    if (!searchQuery.trim()) return;
+
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setIsDropdownOpen(true);
+      if (flatTargets.length > 0) {
+        setSelectedIndex((prev) => (prev + 1) % flatTargets.length);
+      }
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setIsDropdownOpen(true);
+      if (flatTargets.length > 0) {
+        setSelectedIndex((prev) => (prev - 1 + flatTargets.length) % flatTargets.length);
+      }
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      if (selectedIndex > 0 && flatTargets[selectedIndex]) {
+        executeTarget(flatTargets[selectedIndex]);
+      } else if (globalResults.directMatch) {
+        executeTarget(globalResults.directMatch);
+      } else if (flatTargets[0]) {
+        executeTarget(flatTargets[0]);
+      }
+    }
+  };
+
+  const showDropdown = isDropdownOpen && searchQuery.trim().length > 0;
+  let runningTargetIdx = -1;
 
   return (
     <div
+      ref={containerRef}
       draggable={!isLocked}
       onDragStart={(e) => {
         if (isLocked) {
@@ -103,14 +237,19 @@ export const SearchBarSection: React.FC<SearchBarSectionProps> = ({
           type="text"
           draggable={false}
           onMouseDown={(e) => e.stopPropagation()}
+          onFocus={() => setIsDropdownOpen(true)}
+          onKeyDown={handleKeyDown}
           value={searchQuery}
-          onChange={(e) => onSearchChange(e.target.value)}
+          onChange={(e) => {
+            onSearchChange(e.target.value);
+            setIsDropdownOpen(true);
+          }}
           style={{
             height: `${heightPx}px`,
             fontSize: `${fontSizePx}px`,
             paddingLeft: isLocked ? '40px' : '56px',
           }}
-          placeholder="Search all music, tracks, albums, artists, genres, FLAC bitrates... (Press / to focus)"
+          placeholder="Global Search: artists, albums, tracks, genres... (Enter to jump to match)"
           className="w-full bg-[#111628] hover:bg-[#151b30] focus:bg-[#182039] text-slate-100 placeholder:text-slate-400 rounded-2xl pr-36 border border-white/15 focus:border-[var(--fin-accent)] focus:ring-2 focus:ring-[var(--fin-accent)]/25 focus:outline-none transition-all shadow-inner font-sans"
         />
 
@@ -118,6 +257,7 @@ export const SearchBarSection: React.FC<SearchBarSectionProps> = ({
           <button
             onClick={() => {
               onSearchChange('');
+              setIsDropdownOpen(false);
               searchInputRef.current?.focus();
             }}
             className="absolute right-28 text-slate-400 hover:text-white p-1 rounded-full hover:bg-white/10"
@@ -139,7 +279,7 @@ export const SearchBarSection: React.FC<SearchBarSectionProps> = ({
                   ? 'bg-[var(--fin-accent)] text-slate-950 border-[var(--fin-accent)]'
                   : 'bg-white/5 hover:bg-white/15 text-cyan-300 border-white/10'
               }`}
-              title="Resize Search Bar Width, Height, Font Size, or Pop Out to Giant Hero Deck"
+              title="Resize Search Bar Width, Height, Font Size, or Dock Position"
             >
               <ZoomIn className="w-3 h-3" />
               <span className="hidden sm:inline">{heightPx}px</span>
@@ -151,6 +291,302 @@ export const SearchBarSection: React.FC<SearchBarSectionProps> = ({
           </kbd>
         </div>
       </div>
+
+      {/* Global Library Search Results Dropdown */}
+      {showDropdown && (
+        <div
+          data-testid="global-search-dropdown"
+          className={`absolute left-0 right-0 ${
+            pos === 'bottom-deck' ? 'bottom-full mb-2' : 'top-full mt-2'
+          } rounded-2xl bg-[#0b101e]/98 border border-cyan-500/35 shadow-2xl backdrop-blur-2xl z-50 max-h-[72vh] overflow-y-auto divide-y divide-white/10 text-left`}
+        >
+          {/* Top Direct Match Banner (Press Enter to jump) */}
+          {globalResults.directMatch && (
+            <div
+              onClick={() => globalResults.directMatch && executeTarget(globalResults.directMatch)}
+              className="px-4 py-2.5 bg-cyan-950/50 hover:bg-cyan-900/50 flex items-center justify-between gap-3 cursor-pointer transition"
+            >
+              <div className="flex items-center gap-2 text-xs">
+                <span className="px-2 py-0.5 rounded bg-[var(--fin-accent)] text-slate-950 font-mono font-extrabold text-[10px] uppercase">
+                  Direct Match
+                </span>
+                <span className="font-bold text-white truncate">
+                  {globalResults.directMatch.type === 'artist' ||
+                  globalResults.directMatch.type === 'album-artist'
+                    ? globalResults.directMatch.artist.name
+                    : globalResults.directMatch.type === 'album'
+                    ? `${globalResults.directMatch.album.title} — ${globalResults.directMatch.album.artist}`
+                    : `${globalResults.directMatch.track.title} — ${globalResults.directMatch.track.artist}`}
+                </span>
+                <span className="text-[10px] font-mono text-cyan-300 uppercase">
+                  ({globalResults.directMatch.type})
+                </span>
+              </div>
+              <div className="flex items-center gap-1.5 text-[11px] font-mono text-cyan-300 shrink-0">
+                <span>Press Enter</span>
+                <CornerDownLeft className="w-3.5 h-3.5" />
+              </div>
+            </div>
+          )}
+
+          {flatTargets.length === 0 ? (
+            <div className="p-6 text-center text-xs text-slate-400">
+              No artists, albums, or tracks found for "{searchQuery}".
+            </div>
+          ) : (
+            <div className="p-3 space-y-4">
+              {/* Artists Section */}
+              {globalResults.artists.length > 0 && (
+                <div className="space-y-1">
+                  <div className="px-2 flex items-center gap-1.5 text-[10px] font-mono uppercase tracking-wider text-cyan-400 font-bold">
+                    <Users className="w-3 h-3" />
+                    <span>Artists</span>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                    {globalResults.artists.map((artist) => {
+                      runningTargetIdx += 1;
+                      const idx = runningTargetIdx;
+                      const isSel = selectedIndex === idx;
+                      const st = artistStatsMap.get(artist.name.trim().toLowerCase());
+                      const albCount = st?.albumCount ?? artist.albums?.length ?? 0;
+                      const trkCount = st?.trackCount ?? artist.trackCount ?? 0;
+                      return (
+                        <div
+                          key={`gs-art-${artist.id}`}
+                          onClick={() => executeTarget({ type: 'artist', artist })}
+                          onContextMenu={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            onContextMenuArtist?.(e, artist);
+                          }}
+                          className={`flex items-center justify-between gap-2.5 px-3 py-2 rounded-xl cursor-pointer transition ${
+                            isSel
+                              ? 'bg-[var(--fin-accent)]/20 border border-[var(--fin-accent)]/50'
+                              : 'hover:bg-white/10 border border-transparent'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <img
+                              src={resolveCoverArt(st?.coverUrl || artist.coverUrl)}
+                              onError={handleCoverImgError}
+                              alt=""
+                              className="w-8 h-8 rounded-full object-cover border border-white/10 shrink-0"
+                            />
+                            <div className="min-w-0">
+                              <p className="text-xs font-bold text-white truncate">{artist.name}</p>
+                              <p className="text-[10px] font-mono text-slate-400 truncate">
+                                {albCount} {albCount === 1 ? 'album' : 'albums'}
+                                {trkCount > 0 ? ` • ${trkCount} tracks` : ''}
+                              </p>
+                            </div>
+                          </div>
+                          <span className="text-[10px] font-mono text-cyan-300 px-2 py-0.5 rounded bg-white/5 shrink-0">
+                            Artist
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Album Artists Section (when distinct) */}
+              {distinctAlbumArtists.length > 0 && (
+                <div className="space-y-1">
+                  <div className="px-2 flex items-center gap-1.5 text-[10px] font-mono uppercase tracking-wider text-indigo-400 font-bold">
+                    <UserCheck className="w-3 h-3" />
+                    <span>Album Artists</span>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                    {distinctAlbumArtists.map((artist) => {
+                      runningTargetIdx += 1;
+                      const idx = runningTargetIdx;
+                      const isSel = selectedIndex === idx;
+                      const st = artistStatsMap.get(artist.name.trim().toLowerCase());
+                      const albCount = st?.albumCount ?? artist.albums?.length ?? 0;
+                      return (
+                        <div
+                          key={`gs-aa-${artist.id}`}
+                          onClick={() => executeTarget({ type: 'album-artist', artist })}
+                          onContextMenu={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            onContextMenuArtist?.(e, artist);
+                          }}
+                          className={`flex items-center justify-between gap-2.5 px-3 py-2 rounded-xl cursor-pointer transition ${
+                            isSel
+                              ? 'bg-[var(--fin-accent)]/20 border border-[var(--fin-accent)]/50'
+                              : 'hover:bg-white/10 border border-transparent'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <img
+                              src={resolveCoverArt(st?.coverUrl || artist.coverUrl)}
+                              onError={handleCoverImgError}
+                              alt=""
+                              className="w-8 h-8 rounded-full object-cover border border-white/10 shrink-0"
+                            />
+                            <div className="min-w-0">
+                              <p className="text-xs font-bold text-white truncate">{artist.name}</p>
+                              <p className="text-[10px] font-mono text-slate-400 truncate">
+                                {albCount} {albCount === 1 ? 'album' : 'albums'}
+                              </p>
+                            </div>
+                          </div>
+                          <span className="text-[10px] font-mono text-indigo-300 px-2 py-0.5 rounded bg-white/5 shrink-0">
+                            Album Artist
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Albums Section */}
+              {globalResults.albums.length > 0 && (
+                <div className="space-y-1">
+                  <div className="px-2 flex items-center gap-1.5 text-[10px] font-mono uppercase tracking-wider text-emerald-400 font-bold">
+                    <Disc className="w-3 h-3" />
+                    <span>Albums</span>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                    {globalResults.albums.map((album) => {
+                      runningTargetIdx += 1;
+                      const idx = runningTargetIdx;
+                      const isSel = selectedIndex === idx;
+                      return (
+                        <div
+                          key={`gs-alb-${album.id}`}
+                          onClick={() => executeTarget({ type: 'album', album })}
+                          onContextMenu={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            onContextMenuAlbum?.(e, album);
+                          }}
+                          className={`flex items-center justify-between gap-2.5 px-3 py-2 rounded-xl cursor-pointer transition ${
+                            isSel
+                              ? 'bg-[var(--fin-accent)]/20 border border-[var(--fin-accent)]/50'
+                              : 'hover:bg-white/10 border border-transparent'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <img
+                              src={resolveCoverArt(album.coverUrl)}
+                              onError={handleCoverImgError}
+                              alt=""
+                              className="w-9 h-9 rounded-lg object-cover border border-white/10 shrink-0"
+                            />
+                            <div className="min-w-0">
+                              <p className="text-xs font-bold text-white truncate">{album.title}</p>
+                              <p
+                                onContextMenu={(e) => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  onContextMenuArtist?.(e, album.artist);
+                                }}
+                                className="text-[10px] text-slate-400 truncate hover:text-cyan-300"
+                              >
+                                {album.artist} • {album.year}
+                              </p>
+                            </div>
+                          </div>
+                          <span className="text-[10px] font-mono text-emerald-300 px-2 py-0.5 rounded bg-white/5 shrink-0">
+                            Album
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Tracks Section */}
+              {globalResults.tracks.length > 0 && (
+                <div className="space-y-1">
+                  <div className="px-2 flex items-center gap-1.5 text-[10px] font-mono uppercase tracking-wider text-amber-400 font-bold">
+                    <Music className="w-3 h-3" />
+                    <span>Tracks</span>
+                  </div>
+                  <div className="space-y-1">
+                    {globalResults.tracks.map((track) => {
+                      runningTargetIdx += 1;
+                      const idx = runningTargetIdx;
+                      const isSel = selectedIndex === idx;
+                      return (
+                        <div
+                          key={`gs-trk-${track.id}`}
+                          onClick={() => executeTarget({ type: 'track', track })}
+                          onContextMenu={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            onContextMenuTrack?.(e, track);
+                          }}
+                          className={`flex items-center justify-between gap-2.5 px-3 py-1.5 rounded-xl cursor-pointer transition ${
+                            isSel
+                              ? 'bg-[var(--fin-accent)]/20 border border-[var(--fin-accent)]/50'
+                              : 'hover:bg-white/10 border border-transparent'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <img
+                              src={resolveCoverArt(track.coverUrl)}
+                              onError={handleCoverImgError}
+                              alt=""
+                              className="w-7 h-7 rounded-md object-cover border border-white/10 shrink-0"
+                            />
+                            <div className="min-w-0">
+                              <p className="text-xs font-semibold text-white truncate">
+                                {track.title}
+                              </p>
+                              <p className="text-[10px] text-slate-400 truncate">
+                                <span
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setIsDropdownOpen(false);
+                                    onSearchChange('');
+                                    onNavigateToArtist?.(track.artist);
+                                  }}
+                                  onContextMenu={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    onContextMenuArtist?.(e, track.artist);
+                                  }}
+                                  className="hover:underline hover:text-cyan-300"
+                                >
+                                  {track.artist}
+                                </span>{' '}
+                                •{' '}
+                                <span
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setIsDropdownOpen(false);
+                                    onSearchChange('');
+                                    onNavigateToAlbum?.(track.album, track.albumId);
+                                  }}
+                                  className="hover:underline hover:text-slate-200"
+                                >
+                                  {track.album}
+                                </span>
+                              </p>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2 shrink-0">
+                            <span className="text-[9px] font-mono text-cyan-300 px-1.5 py-0.5 rounded bg-white/5">
+                              {track.codec}
+                            </span>
+                            <Play className="w-3.5 h-3.5 text-[var(--fin-accent)] fill-current" />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Live Search Bar Sizing & Modularity Popover */}
       {showSizePopover && onUpdateLayout && (
@@ -281,6 +717,17 @@ interface TitlebarProps {
   currentTrack: Track | null;
   searchQuery: string;
   onSearchChange: (query: string) => void;
+  artists?: Artist[];
+  albumArtists?: Artist[];
+  albums?: Album[];
+  tracks?: Track[];
+  onNavigateToArtist?: (artistName: string) => void;
+  onNavigateToAlbumArtist?: (artistName: string) => void;
+  onNavigateToAlbum?: (albumTitle: string, albumId?: string) => void;
+  onPlayTrack?: (track: Track, contextTracks?: Track[], index?: number) => void;
+  onContextMenuArtist?: (e: React.MouseEvent, artistOrName: Artist | string) => void;
+  onContextMenuAlbum?: (e: React.MouseEvent, album: Album) => void;
+  onContextMenuTrack?: (e: React.MouseEvent, track: Track) => void;
   onGoHome?: () => void;
   onOpenServerModal: () => void;
   onOpenDspModal: () => void;
@@ -300,6 +747,17 @@ export const Titlebar: React.FC<TitlebarProps> = ({
   currentTrack,
   searchQuery,
   onSearchChange,
+  artists,
+  albumArtists,
+  albums,
+  tracks,
+  onNavigateToArtist,
+  onNavigateToAlbumArtist,
+  onNavigateToAlbum,
+  onPlayTrack,
+  onContextMenuArtist,
+  onContextMenuAlbum,
+  onContextMenuTrack,
   onGoHome,
   onOpenServerModal,
   onOpenDspModal,
@@ -469,6 +927,17 @@ export const Titlebar: React.FC<TitlebarProps> = ({
         <SearchBarSection
           searchQuery={searchQuery}
           onSearchChange={onSearchChange}
+          artists={artists}
+          albumArtists={albumArtists}
+          albums={albums}
+          tracks={tracks}
+          onNavigateToArtist={onNavigateToArtist}
+          onNavigateToAlbumArtist={onNavigateToAlbumArtist}
+          onNavigateToAlbum={onNavigateToAlbum}
+          onPlayTrack={onPlayTrack}
+          onContextMenuArtist={onContextMenuArtist}
+          onContextMenuAlbum={onContextMenuAlbum}
+          onContextMenuTrack={onContextMenuTrack}
           layoutConfig={layoutConfig}
           onUpdateLayout={onUpdateLayout}
           onDragStartSection={onDragStartSection}

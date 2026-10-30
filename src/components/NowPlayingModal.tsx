@@ -64,6 +64,7 @@ interface NowPlayingModalProps {
   onOpenVisualizer: () => void;
   onNavigateToArtist?: (artistName: string) => void;
   onNavigateToAlbum?: (albumTitle: string, albumId?: string) => void;
+  onContextMenuArtist?: (e: React.MouseEvent, artistName: string) => void;
 }
 
 export const NowPlayingModal: React.FC<NowPlayingModalProps> = ({
@@ -97,6 +98,7 @@ export const NowPlayingModal: React.FC<NowPlayingModalProps> = ({
   onOpenVisualizer,
   onNavigateToArtist,
   onNavigateToAlbum,
+  onContextMenuArtist,
 }) => {
   const [rightTab, setRightTab] = useState<'queue' | 'lyrics' | 'specs'>('queue');
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -422,8 +424,13 @@ export const NowPlayingModal: React.FC<NowPlayingModalProps> = ({
                       onNavigateToArtist(currentTrack.artist);
                     }
                   }}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    onContextMenuArtist?.(e, currentTrack.artist);
+                  }}
                   className="font-semibold text-cyan-300 hover:underline flex items-center gap-1"
-                  title="View Artist Discography"
+                  title="Click for Artist Discography • Right-click for Artist Options & Artwork Search"
                 >
                   <User className="w-3.5 h-3.5" />
                   <span>{currentTrack.artist}</span>

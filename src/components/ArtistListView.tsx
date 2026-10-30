@@ -49,10 +49,15 @@ interface ArtistListViewProps {
   onPlayAlbum: (album: Album) => void;
   onPlayQueue?: (tracks: Track[]) => void;
   onNavigateToAlbum?: (albumTitle: string, albumId?: string) => void;
-  onReclassifyAlbum?: (albumId: string, releaseType: AlbumReleaseType) => void;
+  onReclassifyAlbum?: (
+    albumId: string,
+    releaseType: AlbumReleaseType,
+    albumTitle?: string,
+    artistName?: string
+  ) => void;
   onSearchArtistArt?: (query: string, artist: Artist) => void;
   onContextMenuTrack?: (e: React.MouseEvent, track: Track) => void;
-  onContextMenuArtist?: (e: React.MouseEvent, artist: Artist) => void;
+  onContextMenuArtist?: (e: React.MouseEvent, artist: Artist | string) => void;
   onContextMenuAlbum?: (e: React.MouseEvent, album: Album) => void;
   layoutConfig?: LayoutConfig;
   onUpdateLayout?: (partial: Partial<LayoutConfig>) => void;
@@ -213,15 +218,37 @@ export const ArtistListView: React.FC<ArtistListViewProps> = ({
     [albums, tracks]
   );
 
-  // Derive Album Counts per artist for sorting & display
+  // Derive Album Counts per artist for sorting & display (from both albums and tracks)
   const albumCountByArtist = useMemo(() => {
-    const map = new Map<string, number>();
+    const sets = new Map<string, Set<string>>();
+    const addAlb = (artistRaw: string, titleOrId: string) => {
+      const k = (artistRaw || '').trim().toLowerCase();
+      const t = (titleOrId || '').trim().toLowerCase();
+      if (!k || !t) return;
+      let s = sets.get(k);
+      if (!s) {
+        s = new Set<string>();
+        sets.set(k, s);
+      }
+      s.add(t);
+    };
     for (const alb of albums) {
-      const key = (alb.artist || '').toLowerCase();
-      if (key) map.set(key, (map.get(key) || 0) + 1);
+      addAlb(alb.artist, alb.title || alb.id);
+    }
+    for (const tr of tracks) {
+      if (tr.album) {
+        addAlb(tr.artist, tr.album);
+        if (tr.albumArtist && tr.albumArtist !== tr.artist) {
+          addAlb(tr.albumArtist, tr.album);
+        }
+      }
+    }
+    const map = new Map<string, number>();
+    for (const [k, s] of sets.entries()) {
+      map.set(k, s.size);
     }
     return map;
-  }, [albums]);
+  }, [albums, tracks]);
 
   // Derive Play Counts per artist for sorting by most played
   const playCountByArtist = useMemo(() => {
@@ -455,7 +482,14 @@ export const ArtistListView: React.FC<ArtistListViewProps> = ({
     e.stopPropagation();
     const albumId = e.dataTransfer.getData('application/x-jellywisp-album') || draggedAlbumId;
     if (albumId) {
-      onReclassifyAlbum?.(albumId, targetType);
+      const targetAlbum =
+        artistAlbums.find((a) => a.id === albumId) || albums.find((a) => a.id === albumId);
+      onReclassifyAlbum?.(
+        albumId,
+        targetType,
+        targetAlbum?.title,
+        targetAlbum?.artist || selectedArtist?.name
+      );
       setArtistAlbums((prev) =>
         prev.map((a) => (a.id === albumId ? { ...a, releaseType: targetType } : a))
       );
@@ -523,7 +557,19 @@ export const ArtistListView: React.FC<ArtistListViewProps> = ({
         </button>
 
         {/* Artist Hero Banner */}
-        <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-6 pb-6 border-b border-white/10">
+        <div
+          onContextMenu={(e) => {
+            e.preventDefault();
+            onContextMenuArtist?.(e, {
+              ...selectedArtist,
+              coverUrl: portraitUrl,
+              albums: artistAlbums,
+              trackCount: Math.max(selectedArtist.trackCount || 0, artistAllTracks.length),
+            });
+          }}
+          title="Right-click for Artist Options & Artwork Search"
+          className="flex flex-col sm:flex-row sm:items-end justify-between gap-6 pb-6 border-b border-white/10"
+        >
           <div className="flex items-center gap-5">
             <div className="relative group shrink-0">
               <img
@@ -750,11 +796,45 @@ export const ArtistListView: React.FC<ArtistListViewProps> = ({
                       />
                       <div>
                         <div className="flex items-center gap-2 flex-wrap">
-                          <span
-                            className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded border ${relBadge.badgeClass}`}
-                          >
-                            {relBadge.shortLabel}
-                          </span>
+                          {onReclassifyAlbum ? (
+                            <select
+                              value={relType}
+                              onClick={(e) => e.stopPropagation()}
+                              onChange={(e) => {
+                                e.stopPropagation();
+                                const newType = e.target.value as AlbumReleaseType;
+                                onReclassifyAlbum(
+                                  album.id,
+                                  newType,
+                                  album.title,
+                                  album.artist || selectedArtist.name
+                                );
+                                setArtistAlbums((prev) =>
+                                  prev.map((a) =>
+                                    a.id === album.id ? { ...a, releaseType: newType } : a
+                                  )
+                                );
+                              }}
+                              title="Change release type"
+                              className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded border cursor-pointer focus:outline-none ${relBadge.badgeClass}`}
+                            >
+                              {RELEASE_TYPE_META.map((rt) => (
+                                <option
+                                  key={rt.id}
+                                  value={rt.id}
+                                  className="bg-[#0d1220] text-white"
+                                >
+                                  {rt.shortLabel}
+                                </option>
+                              ))}
+                            </select>
+                          ) : (
+                            <span
+                              className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded border ${relBadge.badgeClass}`}
+                            >
+                              {relBadge.shortLabel}
+                            </span>
+                          )}
                           <span className="text-xs font-mono font-bold px-2 py-0.5 rounded bg-cyan-950/80 text-cyan-300 border border-cyan-500/30">
                             {album.year}
                           </span>
@@ -774,7 +854,15 @@ export const ArtistListView: React.FC<ArtistListViewProps> = ({
                         >
                           {album.title}
                         </h3>
-                        <p className="text-xs jw-text-artist mt-0.5">
+                        <p
+                          onContextMenu={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            onContextMenuArtist?.(e, album.artist || selectedArtist.name);
+                          }}
+                          className="text-xs jw-text-artist mt-0.5 w-fit hover:underline"
+                          title="Right-click for Artist Options"
+                        >
                           {album.artist} • {albTracks.length || album.trackCount || 'All'} tracks
                         </p>
                       </div>
@@ -916,10 +1004,10 @@ export const ArtistListView: React.FC<ArtistListViewProps> = ({
               {mode === 'album-artists' ? 'Album Artists' : 'Artists & Performers'}
             </h2>
           </div>
-          <p className="text-xs text-slate-400 mt-0.5">
+          <p className="text-xs text-slate-400 mt-0.5 tabular-nums">
             {sortedArtists.length.toLocaleString()}
             {displayTotal > sortedArtists.length ? ` of ${displayTotal.toLocaleString()}` : ''}{' '}
-            {mode === 'album-artists' ? 'primary album artists' : 'artists'} • Click any artist to browse their album discography
+            {mode === 'album-artists' ? 'album artists' : 'artists'}
           </p>
         </div>
 

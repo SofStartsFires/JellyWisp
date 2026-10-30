@@ -35,6 +35,7 @@ interface TrackListViewProps {
   onNavigateToGenre?: (genre: string) => void;
   onNavigateToDecade?: (decade: string) => void;
   onContextMenuTrack?: (e: React.MouseEvent, track: Track) => void;
+  onContextMenuArtist?: (e: React.MouseEvent, artistName: string) => void;
   density?: TrackListDensity;
   showTrackBitrate?: boolean;
   layoutConfig?: LayoutConfig;
@@ -73,6 +74,7 @@ export const TrackListView: React.FC<TrackListViewProps> = ({
   onNavigateToGenre,
   onNavigateToDecade,
   onContextMenuTrack,
+  onContextMenuArtist,
   density = 'standard',
   layoutConfig,
   onUpdateLayout,
@@ -206,11 +208,11 @@ export const TrackListView: React.FC<TrackListViewProps> = ({
               </span>
             )}
           </div>
-          <p className="text-xs text-slate-400 mt-0.5">
+          <p className="text-xs text-slate-400 mt-0.5 tabular-nums">
             {subtitleOverride ||
               `${tracks.length.toLocaleString()}${
                 displayTotal > tracks.length ? ` of ${displayTotal.toLocaleString()}` : ''
-              } tracks • Click any track to play immediately`}
+              } tracks`}
           </p>
         </div>
 
@@ -535,8 +537,13 @@ export const TrackListView: React.FC<TrackListViewProps> = ({
                               onNavigateToArtist(track.artist);
                             }
                           }}
+                          onContextMenu={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            onContextMenuArtist?.(e, track.artist);
+                          }}
                           className="text-[11px] jw-text-artist hover:underline truncate w-fit"
-                          title={`Go to Artist: ${track.artist}`}
+                          title={`Click for ${track.artist} • Right-click for Artist Options`}
                         >
                           {track.artist}
                         </p>
@@ -555,8 +562,13 @@ export const TrackListView: React.FC<TrackListViewProps> = ({
                             onNavigateToArtist(targetName);
                           }
                         }}
+                        onContextMenu={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          onContextMenuArtist?.(e, track.albumArtist || track.artist);
+                        }}
                         className="w-36 text-xs jw-text-artist hover:underline truncate hidden md:block shrink-0"
-                        title={`Go to Album Artist: ${track.albumArtist || track.artist}`}
+                        title={`Click for Album Artist: ${track.albumArtist || track.artist} • Right-click for Artist Options`}
                       >
                         {track.albumArtist || track.artist}
                       </div>

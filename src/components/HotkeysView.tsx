@@ -51,11 +51,11 @@ export const HotkeysView: React.FC<HotkeysViewProps> = ({
               <Keyboard className="w-5 h-5" />
             </div>
             <h1 className="text-2xl font-bold text-white tracking-tight">
-              Power-User Hotkey & Shortcut Manager
+              Keyboard Shortcuts
             </h1>
           </div>
-          <p className="text-xs text-slate-400 mt-1 max-w-2xl">
-            Customize keyboard shortcuts for every playback command and UI action. Click any shortcut to record a new key sequence.
+          <p className="text-xs text-slate-400 mt-1">
+            Click any shortcut to record a new key binding.
           </p>
         </div>
 

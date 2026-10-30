@@ -95,6 +95,8 @@ interface SidebarProps {
   onDragStartSection?: (section: DraggableSectionId) => void;
   onDragEndSection?: () => void;
   onOpenSettingsModal?: () => void;
+  onNavigateToArtist?: (artistName: string) => void;
+  onContextMenuArtist?: (e: React.MouseEvent, artistName: string) => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -125,6 +127,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onDragStartSection,
   onDragEndSection,
   onOpenSettingsModal,
+  onNavigateToArtist,
+  onContextMenuArtist,
 }) => {
   const [showCustomizeMenu, setShowCustomizeMenu] = useState(false);
   const [isResizing, setIsResizing] = useState(false);
@@ -591,7 +595,21 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <p className="text-xs font-semibold jw-text-track group-hover:text-[var(--fin-accent)] truncate transition">
                 {currentTrack.title}
               </p>
-              <p className="text-[11px] jw-text-artist truncate">
+              <p
+                onClick={(e) => {
+                  if (onNavigateToArtist) {
+                    e.stopPropagation();
+                    onNavigateToArtist(currentTrack.artist);
+                  }
+                }}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  onContextMenuArtist?.(e, currentTrack.artist);
+                }}
+                className="text-[11px] jw-text-artist hover:underline truncate w-fit"
+                title="Click for Artist Discography • Right-click for Artist Options"
+              >
                 {currentTrack.artist}
               </p>
             </div>

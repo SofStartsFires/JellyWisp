@@ -26,6 +26,8 @@ interface SmartPlaylistsViewProps {
   onPlayTrack: (track: Track, contextTracks?: Track[], index?: number) => void;
   onPlayQueue: (tracks: Track[]) => void;
   onUpdateTrack: (track: Track) => void;
+  onNavigateToArtist?: (artistName: string) => void;
+  onContextMenuArtist?: (e: React.MouseEvent, artistName: string) => void;
 }
 
 const CUSTOM_MIXES_STORAGE_KEY = 'jellywisp_custom_smart_mixes_v1';
@@ -35,6 +37,8 @@ export const SmartPlaylistsView: React.FC<SmartPlaylistsViewProps> = ({
   onPlayTrack,
   onPlayQueue,
   onUpdateTrack,
+  onNavigateToArtist,
+  onContextMenuArtist,
 }) => {
   const [customPlaylists, setCustomPlaylists] = useState<SmartPlaylist[]>(() => {
     try {
@@ -214,10 +218,10 @@ export const SmartPlaylistsView: React.FC<SmartPlaylistsViewProps> = ({
             </div>
             <div>
               <h1 className="text-xl font-extrabold text-white tracking-tight">
-                Smart Mood, Era & Gimmick Playlists
+                Smart Mood &amp; Era Mixes
               </h1>
-              <p className="text-xs text-slate-400">
-                Type your own custom mix request below or pick from {allPlaylists.length} auto-generated era, gimmick, and acoustic playlists.
+              <p className="text-xs text-slate-400 tabular-nums">
+                {allPlaylists.length} mixes
               </p>
             </div>
           </div>
@@ -255,7 +259,7 @@ export const SmartPlaylistsView: React.FC<SmartPlaylistsViewProps> = ({
           <div className="flex items-center gap-2">
             <Wand2 className="w-4 h-4 text-[var(--fin-accent)]" />
             <span className="text-xs font-extrabold text-white uppercase tracking-wider font-mono">
-              Create Your Own Custom Smart Mix (Always On Top)
+              Custom Smart Mix Builder
             </span>
           </div>
 
@@ -628,8 +632,24 @@ export const SmartPlaylistsView: React.FC<SmartPlaylistsViewProps> = ({
                           {track.title}
                         </p>
                         <p className="text-[11px] text-slate-400 truncate">
-                          {track.artist} — {track.album}{' '}
-                          {track.year ? `(${track.year})` : ''}
+                          <span
+                            onClick={(e) => {
+                              if (onNavigateToArtist) {
+                                e.stopPropagation();
+                                onNavigateToArtist(track.artist);
+                              }
+                            }}
+                            onContextMenu={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              onContextMenuArtist?.(e, track.artist);
+                            }}
+                            className="hover:underline hover:text-cyan-300"
+                            title="Click for Artist Discography • Right-click for Artist Options"
+                          >
+                            {track.artist}
+                          </span>{' '}
+                          — {track.album} {track.year ? `(${track.year})` : ''}
                         </p>
                       </div>
                     </div>

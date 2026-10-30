@@ -1,3 +1,4 @@
+import './storageService.ts';
 import {
   Track,
   Album,
@@ -45,12 +46,32 @@ const STORAGE_KEY_SERVER = 'jellywisp_jellyfin_config';
 const STORAGE_KEY_DEVICE_ID = 'jellywisp_device_id';
 const STORAGE_KEY_LAST_URL = 'jellywisp_last_real_url';
 const STORAGE_KEY_ALBUM_RELEASE_TYPES = 'jellywisp_album_release_types_v1';
+const STORAGE_KEY_FAVORITE_TRACKS = 'jellywisp_favorite_tracks_v1';
+const STORAGE_KEY_TRACK_EDITS = 'jellywisp_track_edits_v1';
+const STORAGE_KEY_ARTWORK_OVERRIDES = 'jellywisp_artwork_overrides_v1';
 
 const FALLBACK_COVER_URL = JELLYWISP_COVER_PLACEHOLDER;
 
+function safeGetLocalStorage(key: string): string | null {
+  try {
+    if (typeof localStorage !== 'undefined') {
+      return localStorage.getItem(key);
+    }
+  } catch {}
+  return null;
+}
+
+function safeSetLocalStorage(key: string, value: string): void {
+  try {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(key, value);
+    }
+  } catch {}
+}
+
 export function getSavedAlbumReleaseTypes(): Record<string, AlbumReleaseType> {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY_ALBUM_RELEASE_TYPES);
+    const raw = safeGetLocalStorage(STORAGE_KEY_ALBUM_RELEASE_TYPES);
     return raw ? JSON.parse(raw) : {};
   } catch {
     return {};
@@ -75,10 +96,30 @@ export function saveAlbumReleaseTypeOverride(
         current[`artalb:${artistName.trim().toLowerCase()}:::${cleanTitle}`] = releaseType;
       }
     }
-    localStorage.setItem(STORAGE_KEY_ALBUM_RELEASE_TYPES, JSON.stringify(current));
+    safeSetLocalStorage(STORAGE_KEY_ALBUM_RELEASE_TYPES, JSON.stringify(current));
   } catch {
     // ignore storage errors
   }
+}
+
+export function getAlbumReleaseTypeOverride(
+  albumId?: string,
+  title?: string,
+  artistName?: string
+): AlbumReleaseType | undefined {
+  const overrides = getSavedAlbumReleaseTypes();
+  if (albumId && overrides[albumId]) {
+    return overrides[albumId];
+  }
+  const cleanTitle = String(title ?? '').trim().toLowerCase();
+  const cleanArtist = String(artistName ?? '').trim().toLowerCase();
+  if (cleanArtist && cleanTitle && overrides[`artalb:${cleanArtist}:::${cleanTitle}`]) {
+    return overrides[`artalb:${cleanArtist}:::${cleanTitle}`];
+  }
+  if (cleanTitle && overrides[`title:${cleanTitle}`]) {
+    return overrides[`title:${cleanTitle}`];
+  }
+  return undefined;
 }
 
 export function inferAlbumReleaseType(
@@ -88,16 +129,9 @@ export function inferAlbumReleaseType(
   durationSec: number = 0,
   artistName?: string
 ): AlbumReleaseType {
-  const overrides = getSavedAlbumReleaseTypes();
-  if (albumId && overrides[albumId]) {
-    return overrides[albumId];
-  }
-  const cleanTitle = String(title ?? '').trim().toLowerCase();
-  if (cleanTitle && overrides[`title:${cleanTitle}`]) {
-    return overrides[`title:${cleanTitle}`];
-  }
-  if (artistName && cleanTitle && overrides[`artalb:${artistName.trim().toLowerCase()}:::${cleanTitle}`]) {
-    return overrides[`artalb:${artistName.trim().toLowerCase()}:::${cleanTitle}`];
+  const explicitOverride = getAlbumReleaseTypeOverride(albumId, title, artistName);
+  if (explicitOverride) {
+    return explicitOverride;
   }
 
   const lower = String(title ?? '').toLowerCase();
@@ -140,6 +174,185 @@ export function inferAlbumReleaseType(
   return 'studio';
 }
 
+export function getSavedTrackFavorites(): Record<string, boolean> {
+  try {
+    const raw = safeGetLocalStorage(STORAGE_KEY_FAVORITE_TRACKS);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+
+export function saveTrackFavoriteOverride(trackId: string, isFavorite: boolean): void {
+  if (!trackId) return;
+  const current = getSavedTrackFavorites();
+  current[trackId] = isFavorite;
+  safeSetLocalStorage(STORAGE_KEY_FAVORITE_TRACKS, JSON.stringify(current));
+}
+
+export function getSavedTrackMetadataOverrides(): Record<string, Partial<Track>> {
+  try {
+    const raw = safeGetLocalStorage(STORAGE_KEY_TRACK_EDITS);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+
+export function saveTrackMetadataOverride(
+  trackOrId: Track | string,
+  partialEdits?: Partial<Track>
+): void {
+  if (!trackOrId) return;
+  const current = getSavedTrackMetadataOverrides();
+  if (typeof trackOrId === 'string') {
+    if (!partialEdits) return;
+    current[trackOrId] = {
+      ...(current[trackOrId] || {}),
+      ...partialEdits,
+    };
+  } else {
+    if (!trackOrId.id) return;
+    current[trackOrId.id] = {
+      title: trackOrId.title,
+      artist: trackOrId.artist,
+      albumArtist: trackOrId.albumArtist,
+      album: trackOrId.album,
+      genre: trackOrId.genre,
+      year: trackOrId.year,
+      trackNumber: trackOrId.trackNumber,
+      bpm: trackOrId.bpm,
+      musicalKey: trackOrId.musicalKey,
+      replayGain: trackOrId.replayGain,
+      lyrics: trackOrId.lyrics,
+      moodTags: trackOrId.moodTags,
+      coverUrl: trackOrId.coverUrl,
+    };
+  }
+  safeSetLocalStorage(STORAGE_KEY_TRACK_EDITS, JSON.stringify(current));
+}
+
+export interface ArtworkOverridesStore {
+  albums: Record<string, string>;
+  artists: Record<string, string>;
+  tracks: Record<string, string>;
+}
+
+export function getSavedArtworkOverrides(): ArtworkOverridesStore {
+  try {
+    const raw = safeGetLocalStorage(STORAGE_KEY_ARTWORK_OVERRIDES);
+    const parsed = raw ? JSON.parse(raw) : {};
+    return {
+      albums: parsed.albums || {},
+      artists: parsed.artists || {},
+      tracks: parsed.tracks || {},
+    };
+  } catch {
+    return { albums: {}, artists: {}, tracks: {} };
+  }
+}
+
+export interface ArtworkOverrideTarget {
+  artistName?: string;
+  albumId?: string;
+  albumTitle?: string;
+  trackId?: string;
+}
+
+export function saveArtworkOverride(
+  targetOrScope: ArtworkOverrideTarget | 'album' | 'artist' | 'track',
+  urlOrPrimaryKey: string,
+  maybeUrl?: string,
+  secondaryKey?: string
+): void {
+  const store = getSavedArtworkOverrides();
+
+  if (typeof targetOrScope === 'object' && targetOrScope !== null) {
+    const url = urlOrPrimaryKey;
+    if (!url) return;
+    if (targetOrScope.artistName) {
+      store.artists[targetOrScope.artistName.trim().toLowerCase()] = url;
+    }
+    if (targetOrScope.albumId) {
+      store.albums[targetOrScope.albumId] = url;
+    }
+    if (targetOrScope.albumTitle) {
+      store.albums[`title:${targetOrScope.albumTitle.trim().toLowerCase()}`] = url;
+    }
+    if (targetOrScope.trackId) {
+      store.tracks[targetOrScope.trackId] = url;
+    }
+    safeSetLocalStorage(STORAGE_KEY_ARTWORK_OVERRIDES, JSON.stringify(store));
+    return;
+  }
+
+  const scope = targetOrScope;
+  const primaryKey = urlOrPrimaryKey;
+  const url = maybeUrl || '';
+  if (!primaryKey || !url) return;
+  const cleanPrimary = primaryKey.trim().toLowerCase();
+  if (scope === 'album') {
+    store.albums[primaryKey] = url;
+    store.albums[`title:${cleanPrimary}`] = url;
+    if (secondaryKey) {
+      store.albums[`title:${secondaryKey.trim().toLowerCase()}`] = url;
+    }
+  } else if (scope === 'artist') {
+    store.artists[cleanPrimary] = url;
+  } else if (scope === 'track') {
+    store.tracks[primaryKey] = url;
+  }
+  safeSetLocalStorage(STORAGE_KEY_ARTWORK_OVERRIDES, JSON.stringify(store));
+}
+
+export function applyLocalLibraryOverrides(
+  tracks: Track[],
+  albums: Album[],
+  artists: Artist[]
+): { tracks: Track[]; albums: Album[]; artists: Artist[] } {
+  const favs = getSavedTrackFavorites();
+  const edits = getSavedTrackMetadataOverrides();
+  const art = getSavedArtworkOverrides();
+
+  const updatedAlbums = albums.map((alb) => {
+    const releaseType =
+      getAlbumReleaseTypeOverride(alb.id, alb.title, alb.artist) ||
+      alb.releaseType ||
+      inferAlbumReleaseType(alb.id, alb.title, alb.trackCount, alb.totalDuration, alb.artist);
+    const customCover =
+      art.albums[alb.id] ||
+      art.albums[`title:${alb.title.trim().toLowerCase()}`] ||
+      alb.coverUrl;
+    return {
+      ...alb,
+      releaseType,
+      coverUrl: customCover,
+    };
+  });
+
+  const updatedTracks = tracks.map((t) => {
+    const edit = edits[t.id];
+    const isFavorite = t.id in favs ? favs[t.id] : t.isFavorite;
+    const merged = edit ? { ...t, ...edit, isFavorite } : { ...t, isFavorite };
+    const customCover =
+      art.tracks[merged.id] ||
+      (merged.albumId && art.albums[merged.albumId]) ||
+      art.albums[`title:${merged.album.trim().toLowerCase()}`] ||
+      merged.coverUrl;
+    return {
+      ...merged,
+      coverUrl: customCover,
+    };
+  });
+
+  const updatedArtists = artists.map((a) => {
+    const customArt = art.artists[a.name.trim().toLowerCase()];
+    return customArt ? { ...a, coverUrl: customArt } : a;
+  });
+
+  return { tracks: updatedTracks, albums: updatedAlbums, artists: updatedArtists };
+}
+
 export interface JellyfinConnectionTestResult {
   success: boolean;
   normalizedUrl?: string;
@@ -161,32 +374,33 @@ export class JellyfinService {
   private activeSyncGeneration = 0;
 
   constructor() {
-    const savedDevice = localStorage.getItem(STORAGE_KEY_DEVICE_ID);
+    const savedDevice = safeGetLocalStorage(STORAGE_KEY_DEVICE_ID);
     if (savedDevice) {
       this.deviceId = savedDevice;
     } else {
       this.deviceId = 'jellywisp-desktop-' + Math.random().toString(36).substring(2, 11);
-      localStorage.setItem(STORAGE_KEY_DEVICE_ID, this.deviceId);
+      safeSetLocalStorage(STORAGE_KEY_DEVICE_ID, this.deviceId);
     }
 
-    const saved = localStorage.getItem(STORAGE_KEY_SERVER);
+    const saved = safeGetLocalStorage(STORAGE_KEY_SERVER);
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
-        if (
-          parsed.token === DEFAULT_DEMO_CONFIG.token ||
-          (parsed.url && parsed.url.includes('sound-sphere.internal'))
-        ) {
-          // If previous demo config saved, keep disconnected or demo depending on preference, but default fresh is disconnected
-          this.config = parsed;
+        if (parsed && typeof parsed === 'object') {
+          // If the user previously saved real server credentials, ensure isConnected stays true so we auto-reconnect on launch
+          if (!parsed.isDemoMode && parsed.url && parsed.token && parsed.userId) {
+            this.config = { ...DEFAULT_FRESH_CONFIG, ...parsed, isConnected: true };
+          } else {
+            this.config = { ...DEFAULT_DEMO_CONFIG, ...parsed };
+          }
         } else {
-          this.config = parsed;
+          this.config = { ...DEFAULT_DEMO_CONFIG };
         }
       } catch {
-        this.config = { ...DEFAULT_FRESH_CONFIG };
+        this.config = { ...DEFAULT_DEMO_CONFIG };
       }
     } else {
-      this.config = { ...DEFAULT_FRESH_CONFIG };
+      this.config = { ...DEFAULT_DEMO_CONFIG };
     }
   }
 
@@ -921,15 +1135,16 @@ export class JellyfinService {
     const trackCount = item.ChildCount || item.SongCount || 0;
     const title = item.Name || 'Unknown Album';
     const extractedGenre = this.extractGenreString(item);
+    const artist =
+      item.AlbumArtist ||
+      item.AlbumArtists?.[0]?.Name ||
+      item.Artists?.[0] ||
+      'Various Artists';
 
     return {
       id: item.Id,
       title,
-      artist:
-        item.AlbumArtist ||
-        item.AlbumArtists?.[0]?.Name ||
-        item.Artists?.[0] ||
-        'Various Artists',
+      artist,
       year: item.ProductionYear || 2024,
       genre: extractedGenre || 'Unclassified',
       coverUrl,
@@ -938,7 +1153,7 @@ export class JellyfinService {
       totalDuration: durationSec,
       isHiRes: true,
       hiresBadge: 'LOSSLESS',
-      releaseType: inferAlbumReleaseType(item.Id, title, trackCount, durationSec),
+      releaseType: inferAlbumReleaseType(item.Id, title, trackCount, durationSec, artist),
     };
   }
 
@@ -1050,9 +1265,10 @@ export class JellyfinService {
     });
 
     if (res.ok && Array.isArray(res.data?.Items)) {
-      return res.data.Items.map((it: any, idx: number) =>
+      const mapped = res.data.Items.map((it: any, idx: number) =>
         this.mapJellyfinItemToTrack(it, idx, cleanUrl)
       );
+      return applyLocalLibraryOverrides(mapped, [], []).tracks;
     }
     return [];
   }
@@ -1083,7 +1299,8 @@ export class JellyfinService {
       });
 
       if (res.ok && Array.isArray(res.data?.Items) && res.data.Items.length > 0) {
-        return res.data.Items.map((it: any) => this.mapJellyfinItemToAlbum(it, cleanUrl));
+        const mapped = res.data.Items.map((it: any) => this.mapJellyfinItemToAlbum(it, cleanUrl));
+        return applyLocalLibraryOverrides([], mapped, []).albums;
       }
     }
 
@@ -1099,11 +1316,14 @@ export class JellyfinService {
 
     if (searchRes.ok && Array.isArray(searchRes.data?.Items)) {
       const lower = artistName.toLowerCase();
-      return searchRes.data.Items.map((it: any) => this.mapJellyfinItemToAlbum(it, cleanUrl)).filter(
+      const mapped = searchRes.data.Items.map((it: any) =>
+        this.mapJellyfinItemToAlbum(it, cleanUrl)
+      ).filter(
         (alb: Album) =>
           alb.artist.toLowerCase().includes(lower) ||
           alb.title.toLowerCase().includes(lower)
       );
+      return applyLocalLibraryOverrides([], mapped, []).albums;
     }
     return [];
   }
@@ -1181,17 +1401,17 @@ export class JellyfinService {
       ),
     ]);
 
-    return {
-      tracks: (tracksRes.data?.Items || []).map((it: any, i: number) =>
+    return applyLocalLibraryOverrides(
+      (tracksRes.data?.Items || []).map((it: any, i: number) =>
         this.mapJellyfinItemToTrack(it, i, cleanUrl)
       ),
-      albums: (albumsRes.data?.Items || []).map((it: any) =>
+      (albumsRes.data?.Items || []).map((it: any) =>
         this.mapJellyfinItemToAlbum(it, cleanUrl)
       ),
-      artists: (artistsRes.data?.Items || []).map((it: any) =>
+      (artistsRes.data?.Items || []).map((it: any) =>
         this.mapJellyfinItemToArtist(it, cleanUrl)
-      ),
-    };
+      )
+    );
   }
 
   /**
@@ -1215,21 +1435,96 @@ export class JellyfinService {
     if (this.config.isDemoMode) {
       const demoAlbums = INITIAL_ALBUMS.map((a) => ({
         ...a,
-        releaseType: inferAlbumReleaseType(a.id, a.title, a.trackCount, a.totalDuration),
+        releaseType: inferAlbumReleaseType(a.id, a.title, a.trackCount, a.totalDuration, a.artist),
       }));
+      const overridden = applyLocalLibraryOverrides(
+        [...INITIAL_TRACKS],
+        demoAlbums,
+        [...INITIAL_ARTISTS]
+      );
+      // Sync embedded album track lists with overridden tracks and synthesize any missing album entries
+      const tracksByAlbum = new Map<string, Track[]>();
+      for (const t of overridden.tracks) {
+        const key = t.album.trim().toLowerCase();
+        if (!tracksByAlbum.has(key)) tracksByAlbum.set(key, []);
+        tracksByAlbum.get(key)!.push(t);
+      }
+
+      const seenAlbumTitles = new Set<string>();
+      const syncedAlbums: Album[] = overridden.albums.map((alb) => {
+        const titleKey = alb.title.trim().toLowerCase();
+        seenAlbumTitles.add(titleKey);
+        const matchedTracks = tracksByAlbum.get(titleKey) || alb.tracks;
+        const trackCount = matchedTracks.length || alb.trackCount;
+        const totalDuration =
+          matchedTracks.reduce((acc, tr) => acc + (tr.duration || 0), 0) || alb.totalDuration;
+        return {
+          ...alb,
+          tracks: matchedTracks,
+          trackCount,
+          totalDuration,
+          releaseType:
+            getAlbumReleaseTypeOverride(alb.id, alb.title, alb.artist) ||
+            inferAlbumReleaseType(alb.id, alb.title, trackCount, totalDuration, alb.artist),
+        };
+      });
+
+      for (const [titleKey, albTracks] of tracksByAlbum.entries()) {
+        if (!seenAlbumTitles.has(titleKey) && albTracks.length > 0) {
+          seenAlbumTitles.add(titleKey);
+          const first = albTracks[0];
+          const albId = first.albumId || `alb-demo-${syncedAlbums.length + 1}`;
+          const albArtist = first.albumArtist || first.artist;
+          const totalDuration = albTracks.reduce((acc, tr) => acc + (tr.duration || 0), 0);
+          syncedAlbums.push({
+            id: albId,
+            title: first.album,
+            artist: albArtist,
+            year: first.year,
+            genre: first.genre,
+            coverUrl: first.coverUrl,
+            tracks: albTracks,
+            trackCount: albTracks.length,
+            totalDuration,
+            isHiRes: first.codec === 'FLAC' || first.codec === 'DSD' || first.codec === 'ALAC',
+            hiresBadge: `${first.codec} ${Math.round((first.sampleRate || 44100) / 1000)}kHz / ${first.bitDepth || 16}-bit`,
+            releaseType:
+              getAlbumReleaseTypeOverride(albId, first.album, albArtist) ||
+              inferAlbumReleaseType(albId, first.album, albTracks.length, totalDuration, albArtist),
+          });
+        }
+      }
+
+      const syncedArtists = overridden.artists.map((art) => {
+        const lower = art.name.trim().toLowerCase();
+        const artAlbums = syncedAlbums.filter(
+          (a) => a.artist.trim().toLowerCase() === lower
+        );
+        const artTracks = overridden.tracks.filter(
+          (t) =>
+            t.artist.trim().toLowerCase() === lower ||
+            (t.albumArtist || '').trim().toLowerCase() === lower
+        );
+        return {
+          ...art,
+          albums: artAlbums.length > 0 ? artAlbums : art.albums,
+          trackCount: artTracks.length || art.trackCount,
+        };
+      });
+
       const demoProgress: LibrarySyncProgress = {
-        loadedTracks: INITIAL_TRACKS.length,
-        totalTracks: INITIAL_TRACKS.length,
-        loadedAlbums: demoAlbums.length,
-        totalAlbums: demoAlbums.length,
-        loadedArtists: INITIAL_ARTISTS.length,
-        totalArtists: INITIAL_ARTISTS.length,
+        loadedTracks: overridden.tracks.length,
+        totalTracks: overridden.tracks.length,
+        loadedAlbums: syncedAlbums.length,
+        totalAlbums: syncedAlbums.length,
+        loadedArtists: syncedArtists.length,
+        totalArtists: syncedArtists.length,
         isComplete: true,
       };
       return {
-        tracks: [...INITIAL_TRACKS],
-        albums: demoAlbums,
-        artists: [...INITIAL_ARTISTS],
+        tracks: overridden.tracks,
+        albums: syncedAlbums,
+        artists: syncedArtists,
         progress: demoProgress,
       };
     }
@@ -1372,10 +1667,11 @@ export class JellyfinService {
           const key = t.albumId || `${t.album}___${t.albumArtist}`;
           if (!albumMap.has(key)) {
             const albId = t.albumId || `alb-${t.id}`;
+            const albArtist = t.albumArtist || t.artist;
             albumMap.set(key, {
               id: albId,
               title: t.album,
-              artist: t.albumArtist || t.artist,
+              artist: albArtist,
               year: t.year,
               genre: t.genre,
               coverUrl: t.coverUrl,
@@ -1384,7 +1680,7 @@ export class JellyfinService {
               totalDuration: 0,
               isHiRes: true,
               hiresBadge: t.codec,
-              releaseType: inferAlbumReleaseType(albId, t.album, 1, t.duration),
+              releaseType: inferAlbumReleaseType(albId, t.album, 1, t.duration, albArtist),
             });
           }
           const alb = albumMap.get(key)!;
@@ -1414,6 +1710,10 @@ export class JellyfinService {
       }
 
       this.enrichTrackGenresFromAlbumsAndArtists(allTracks, allAlbums, allArtists);
+      const overriddenInitial = applyLocalLibraryOverrides(allTracks, allAlbums, allArtists);
+      allTracks = overriddenInitial.tracks;
+      allAlbums = overriddenInitial.albums;
+      allArtists = overriddenInitial.artists;
 
       const isInitiallyComplete =
         allTracks.length >= totalTracks &&
@@ -1495,7 +1795,11 @@ export class JellyfinService {
         { token: this.config.token, forceProxy: this.config.useProxy }
       );
       if (!res.ok || !res.data?.Items?.length) break;
-      const mapped = res.data.Items.map((it: any) => this.mapJellyfinItemToArtist(it, cleanUrl));
+      const mapped = applyLocalLibraryOverrides(
+        [],
+        [],
+        res.data.Items.map((it: any) => this.mapJellyfinItemToArtist(it, cleanUrl))
+      ).artists;
       artists = [...artists, ...mapped];
 
       if (syncGen !== this.activeSyncGeneration) return;
@@ -1523,7 +1827,11 @@ export class JellyfinService {
         { token: this.config.token, forceProxy: this.config.useProxy }
       );
       if (!res.ok || !res.data?.Items?.length) break;
-      const mapped = res.data.Items.map((it: any) => this.mapJellyfinItemToAlbum(it, cleanUrl));
+      const mapped = applyLocalLibraryOverrides(
+        [],
+        res.data.Items.map((it: any) => this.mapJellyfinItemToAlbum(it, cleanUrl)),
+        []
+      ).albums;
       albums = [...albums, ...mapped];
 
       if (syncGen !== this.activeSyncGeneration) return;
@@ -1553,10 +1861,11 @@ export class JellyfinService {
       if (!res.ok || !res.data?.Items?.length) break;
 
       const baseIdx = tracks.length;
-      const mapped = res.data.Items.map((it: any, i: number) =>
+      const rawMapped = res.data.Items.map((it: any, i: number) =>
         this.mapJellyfinItemToTrack(it, baseIdx + i, cleanUrl)
       );
-      this.enrichTrackGenresFromAlbumsAndArtists(mapped, albums, artists);
+      this.enrichTrackGenresFromAlbumsAndArtists(rawMapped, albums, artists);
+      const mapped = applyLocalLibraryOverrides(rawMapped, [], []).tracks;
       tracks = [...tracks, ...mapped];
 
       if (syncGen !== this.activeSyncGeneration) return;
@@ -1579,15 +1888,16 @@ export class JellyfinService {
 
     if (syncGen === this.activeSyncGeneration) {
       this.enrichTrackGenresFromAlbumsAndArtists(tracks, albums, artists);
+      const finalOverridden = applyLocalLibraryOverrides(tracks, albums, artists);
       onProgress(
-        { tracks, albums, artists },
+        finalOverridden,
         {
-          loadedTracks: tracks.length,
-          totalTracks: Math.max(totalTracks, tracks.length),
-          loadedAlbums: albums.length,
-          totalAlbums: Math.max(totalAlbums, albums.length),
-          loadedArtists: artists.length,
-          totalArtists: Math.max(totalArtists, artists.length),
+          loadedTracks: finalOverridden.tracks.length,
+          totalTracks: Math.max(totalTracks, finalOverridden.tracks.length),
+          loadedAlbums: finalOverridden.albums.length,
+          totalAlbums: Math.max(totalAlbums, finalOverridden.albums.length),
+          loadedArtists: finalOverridden.artists.length,
+          totalArtists: Math.max(totalArtists, finalOverridden.artists.length),
           isComplete: true,
         }
       );

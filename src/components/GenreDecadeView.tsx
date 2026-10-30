@@ -21,6 +21,8 @@ interface GenreDecadeViewProps {
   onPlayTrack: (track: Track, contextTracks?: Track[], index?: number) => void;
   onPlayAlbum: (album: Album) => void;
   onPlayQueue: (tracks: Track[]) => void;
+  onNavigateToArtist?: (artistName: string) => void;
+  onContextMenuArtist?: (e: React.MouseEvent, artistName: string) => void;
 }
 
 interface BucketItem {
@@ -42,6 +44,8 @@ export const GenreDecadeView: React.FC<GenreDecadeViewProps> = ({
   onPlayTrack,
   onPlayAlbum,
   onPlayQueue,
+  onNavigateToArtist,
+  onContextMenuArtist,
 }) => {
   const [selectedBucketId, setSelectedBucketId] = useState<string | null>(null);
   const [sortBy, setSortBy] = useState<'count' | 'name' | 'chronological'>(
@@ -257,7 +261,23 @@ export const GenreDecadeView: React.FC<GenreDecadeViewProps> = ({
                 <h4 className="text-xs font-bold text-white truncate group-hover:text-cyan-300">
                   {alb.title}
                 </h4>
-                <p className="text-[11px] text-slate-400 truncate mt-0.5">{alb.artist}</p>
+                <p
+                  onClick={(e) => {
+                    if (onNavigateToArtist) {
+                      e.stopPropagation();
+                      onNavigateToArtist(alb.artist);
+                    }
+                  }}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    onContextMenuArtist?.(e, alb.artist);
+                  }}
+                  className="text-[11px] text-slate-400 hover:text-cyan-300 hover:underline truncate mt-0.5 w-fit"
+                  title="Click for Artist Discography • Right-click for Artist Options"
+                >
+                  {alb.artist}
+                </p>
                 <span className="text-[10px] font-mono text-slate-500 mt-1">{alb.year}</span>
               </div>
             ))}
@@ -293,7 +313,24 @@ export const GenreDecadeView: React.FC<GenreDecadeViewProps> = ({
                         {t.title}
                       </p>
                       <p className="text-[11px] text-slate-400 truncate">
-                        {t.artist} • {t.album} ({t.year})
+                        <span
+                          onClick={(e) => {
+                            if (onNavigateToArtist) {
+                              e.stopPropagation();
+                              onNavigateToArtist(t.artist);
+                            }
+                          }}
+                          onContextMenu={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            onContextMenuArtist?.(e, t.artist);
+                          }}
+                          className="hover:underline hover:text-cyan-300"
+                          title="Click for Artist Discography • Right-click for Artist Options"
+                        >
+                          {t.artist}
+                        </span>{' '}
+                        • {t.album} ({t.year})
                       </p>
                     </div>
                   </div>
@@ -324,8 +361,8 @@ export const GenreDecadeView: React.FC<GenreDecadeViewProps> = ({
               {mode === 'decades' ? 'Browse by Decade & Era' : 'Browse by Music Genre'}
             </h2>
           </div>
-          <p className="text-xs text-slate-400 mt-0.5">
-            {buckets.length} {mode === 'decades' ? 'decades' : 'genres'} across your library • Click any card to explore albums & tracks
+          <p className="text-xs text-slate-400 mt-0.5 tabular-nums">
+            {buckets.length} {mode === 'decades' ? 'decades' : 'genres'}
           </p>
         </div>
 
