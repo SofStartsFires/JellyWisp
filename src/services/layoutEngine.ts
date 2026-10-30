@@ -147,23 +147,23 @@ export const DEFAULT_LAYOUT_CONFIG: LayoutConfig = {
 
   genreTaxonomyMode: 'canonical',
   homeConfig: {
-    showHeroPlayer: true,
-    showTelemetryStats: true,
+    showHeroPlayer: false,
+    showTelemetryStats: false,
     telemetryItems: {
       tracks: true,
       albums: true,
-      lossless: true,
-      ping: true,
-      artists: true,
+      lossless: false,
+      ping: false,
+      artists: false,
     },
     showHeavyRotation: true,
-    heavyRotationCount: 10,
+    heavyRotationCount: 6,
     showRecentAlbums: true,
-    recentAlbumsCount: 8,
-    showFeaturedArtists: true,
-    featuredArtistsCount: 8,
+    recentAlbumsCount: 6,
+    showFeaturedArtists: false,
+    featuredArtistsCount: 6,
     showSmartMixes: true,
-    sectionOrder: ['hero', 'telemetry', 'heavy-rotation', 'recent-albums', 'featured-artists', 'smart-mixes'],
+    sectionOrder: ['heavy-rotation', 'recent-albums', 'smart-mixes', 'hero', 'telemetry', 'featured-artists'],
   },
 };
 

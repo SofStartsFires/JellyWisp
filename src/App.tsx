@@ -135,6 +135,8 @@ export default function App() {
     label?: string;
     targetTrack?: Track;
     targetArtistName?: string;
+    targetAlbumId?: string;
+    targetAlbumTitle?: string;
   } | null>(null);
   const [contextMenuState, setContextMenuState] = useState<{
     track: Track;
@@ -376,6 +378,29 @@ export default function App() {
     if (albumTracks.length > 0) {
       setQueue(albumTracks);
       handlePlayTrack(albumTracks[0], albumTracks, 0);
+    }
+  };
+
+  const handlePlayNextAlbum = (album: Album) => {
+    const albumTracks =
+      album.tracks && album.tracks.length > 0
+        ? album.tracks
+        : tracks.filter(
+            (t) =>
+              t.albumId === album.id ||
+              t.album.toLowerCase() === album.title.toLowerCase()
+          );
+    if (albumTracks.length > 0) {
+      setQueue((prev) => {
+        if (prev.length === 0) return albumTracks;
+        const currentIdx = prev.findIndex((t) => t.id === currentTrack?.id);
+        if (currentIdx === -1) {
+          return [...albumTracks, ...prev];
+        }
+        const next = [...prev];
+        next.splice(currentIdx + 1, 0, ...albumTracks);
+        return next;
+      });
     }
   };
 
@@ -1302,8 +1327,18 @@ export default function App() {
               onPlayAlbum={handlePlayAlbum}
               onPlayTrack={handlePlayTrack}
               onContextMenuTrack={handleOpenTrackContextMenu}
+              onContextMenuAlbum={handleOpenAlbumContextMenu}
               onNavigateToAlbum={handleNavigateToAlbum}
               onReclassifyAlbum={handleReclassifyAlbum}
+              onSearchArtistArt={(artistName) => {
+                setCoverArtSearchState({
+                  query: artistName,
+                  mode: 'artist',
+                  label: artistName,
+                  targetArtistName: artistName,
+                });
+                setIsCoverArtFinderOpen(true);
+              }}
               initialSelectedArtistName={initialSelectedArtistName}
               onClearInitialArtist={() => setInitialSelectedArtistName(null)}
               layoutConfig={layoutConfig}
@@ -1322,8 +1357,18 @@ export default function App() {
               onPlayAlbum={handlePlayAlbum}
               onPlayTrack={handlePlayTrack}
               onContextMenuTrack={handleOpenTrackContextMenu}
+              onContextMenuAlbum={handleOpenAlbumContextMenu}
               onNavigateToAlbum={handleNavigateToAlbum}
               onReclassifyAlbum={handleReclassifyAlbum}
+              onSearchArtistArt={(artistName) => {
+                setCoverArtSearchState({
+                  query: artistName,
+                  mode: 'artist',
+                  label: artistName,
+                  targetArtistName: artistName,
+                });
+                setIsCoverArtFinderOpen(true);
+              }}
               initialSelectedArtistName={initialSelectedArtistName}
               onClearInitialArtist={() => setInitialSelectedArtistName(null)}
               layoutConfig={layoutConfig}
@@ -1531,6 +1576,7 @@ export default function App() {
         position={albumContextMenuState?.position || null}
         onClose={() => setAlbumContextMenuState(null)}
         onPlayAlbum={handlePlayAlbum}
+        onPlayNext={handlePlayNextAlbum}
         onAddToQueue={(alb) => {
           const albTracks =
             alb.tracks && alb.tracks.length > 0
@@ -1556,6 +1602,8 @@ export default function App() {
             query: `${alb.artist} ${alb.title}`.trim(),
             mode: 'album',
             label: `${alb.title} — ${alb.artist}`,
+            targetAlbumId: alb.id,
+            targetAlbumTitle: alb.title,
           });
           setIsCoverArtFinderOpen(true);
         }}
@@ -1669,17 +1717,64 @@ export default function App() {
           coverArtSearchState?.label ||
           (currentTrack ? `${currentTrack.album} — ${currentTrack.artist}` : undefined)
         }
-        onSelectArt={(artUrl) => {
+        onSelectArt={(artUrl, applyScope) => {
           const targetArtist = coverArtSearchState?.targetArtistName;
           const targetTrack = coverArtSearchState?.targetTrack || currentTrack;
+          const targetAlbumId = coverArtSearchState?.targetAlbumId;
+          const targetAlbumTitle = coverArtSearchState?.targetAlbumTitle;
 
-          if (coverArtSearchState?.mode === 'artist' && targetArtist) {
+          if ((applyScope === 'artist' || coverArtSearchState?.mode === 'artist') && targetArtist) {
             const key = targetArtist.trim().toLowerCase();
             setArtists((prev) =>
               prev.map((a) => (a.name.trim().toLowerCase() === key ? { ...a, coverUrl: artUrl } : a))
             );
+          }
+
+          if (targetAlbumId || targetAlbumTitle) {
+            setTracks((prev) =>
+              prev.map((t) =>
+                (targetAlbumId && t.albumId === targetAlbumId) ||
+                (targetAlbumTitle && t.album.toLowerCase() === targetAlbumTitle.toLowerCase())
+                  ? { ...t, coverUrl: artUrl }
+                  : t
+              )
+            );
+            setAlbums((prev) =>
+              prev.map((alb) =>
+                (targetAlbumId && alb.id === targetAlbumId) ||
+                (targetAlbumTitle && alb.title.toLowerCase() === targetAlbumTitle.toLowerCase())
+                  ? {
+                      ...alb,
+                      coverUrl: artUrl,
+                      tracks: alb.tracks.map((t) => ({ ...t, coverUrl: artUrl })),
+                    }
+                  : alb
+              )
+            );
           } else if (targetTrack) {
-            handleUpdateTrack({ ...targetTrack, coverUrl: artUrl });
+            if (applyScope === 'track-album') {
+              setTracks((prev) =>
+                prev.map((t) =>
+                  t.album.toLowerCase() === targetTrack.album.toLowerCase() &&
+                  t.artist.toLowerCase() === targetTrack.artist.toLowerCase()
+                    ? { ...t, coverUrl: artUrl }
+                    : t
+                )
+              );
+              setAlbums((prev) =>
+                prev.map((alb) =>
+                  alb.title.toLowerCase() === targetTrack.album.toLowerCase()
+                    ? {
+                        ...alb,
+                        coverUrl: artUrl,
+                        tracks: alb.tracks.map((t) => ({ ...t, coverUrl: artUrl })),
+                      }
+                    : alb
+                )
+              );
+            } else {
+              handleUpdateTrack({ ...targetTrack, coverUrl: artUrl });
+            }
           }
         }}
       />

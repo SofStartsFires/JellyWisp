@@ -88,10 +88,18 @@ export const HomeView: React.FC<HomeViewProps> = ({
     showSmartMixes: true,
   };
 
-  // Most Played / Heavy Rotation Tracks (sorted by playCount descending)
+  // Most Played / Heavy Rotation Tracks (sorted by playCount descending, with robust fallbacks)
   const heavyRotationTracks = React.useMemo(() => {
     return [...tracks]
-      .sort((a, b) => (Number(b.playCount) || 0) - (Number(a.playCount) || 0) || (b.year || 0) - (a.year || 0))
+      .sort((a, b) => {
+        const pcA = Number(a.playCount) || 0;
+        const pcB = Number(b.playCount) || 0;
+        if (pcB !== pcA) return pcB - pcA;
+        const rA = Number(a.rating) || 0;
+        const rB = Number(b.rating) || 0;
+        if (rB !== rA) return rB - rA;
+        return (b.year || 0) - (a.year || 0);
+      })
       .slice(0, homeHc.heavyRotationCount || 10);
   }, [tracks, homeHc.heavyRotationCount]);
 
@@ -132,151 +140,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
   const progressPct = duration > 0 ? Math.min(100, (currentTime / duration) * 100) : 0;
 
   return (
-    <div className="flex-1 flex flex-col h-full overflow-y-auto p-4 sm:p-6 space-y-6 sm:space-y-8 select-none">
-      {/* Hero Banner: Quick Resume / Spotlight Player Deck */}
-      {homeHc.showHeroPlayer !== false && featuredTrack && (
-        <section className="relative overflow-hidden rounded-2xl sm:rounded-3xl bg-gradient-to-r from-[#0b1329] via-[#0f172a] to-[#1e1b4b] border border-white/10 p-4 sm:p-6 lg:p-7 shadow-2xl">
-          <div className="absolute right-0 top-0 bottom-0 w-2/3 opacity-20 pointer-events-none overflow-hidden blur-2xl">
-            <img
-              src={resolveCoverArt(featuredTrack.coverUrl)}
-              alt=""
-              className="w-full h-full object-cover scale-150 transform"
-            />
-          </div>
-
-          <div className="relative z-10 flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-5 lg:gap-8 w-full min-w-0">
-            {/* Left: Cover Art & Track Metadata */}
-            <div className="flex items-center gap-4 sm:gap-5 min-w-0 flex-1">
-              <div className="relative group shrink-0">
-                <img
-                  src={resolveCoverArt(featuredTrack.coverUrl)}
-                  onError={handleCoverImgError}
-                  alt={featuredTrack.title}
-                  className="w-20 h-20 sm:w-24 sm:h-24 md:w-28 md:h-28 rounded-2xl object-cover shadow-2xl border border-white/15 bg-black/40"
-                />
-                <button
-                  onClick={() => {
-                    if (currentTrack?.id === featuredTrack.id && onTogglePlay) {
-                      onTogglePlay();
-                    } else {
-                      onPlayTrack(featuredTrack, tracks);
-                    }
-                  }}
-                  className="absolute inset-0 m-auto w-11 h-11 sm:w-12 sm:h-12 rounded-full bg-cyan-400 text-slate-950 flex items-center justify-center shadow-xl opacity-90 group-hover:opacity-100 group-hover:scale-110 transition active:scale-95"
-                  title={isFeaturedPlaying ? 'Pause Track' : 'Play Track'}
-                >
-                  {isFeaturedPlaying ? (
-                    <Pause className="w-5 h-5 fill-current" />
-                  ) : (
-                    <Play className="w-5 h-5 fill-current ml-0.5" />
-                  )}
-                </button>
-              </div>
-
-              <div className="min-w-0 flex-1 space-y-1">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="text-[10px] font-mono uppercase tracking-wider text-cyan-400 font-bold px-2 py-0.5 rounded bg-cyan-950/80 border border-cyan-500/30 shrink-0">
-                    {currentTrack?.id === featuredTrack.id ? 'Now Playing' : 'Jump Back In'}
-                  </span>
-                  <span className="text-[10px] font-mono text-slate-400 truncate">
-                    {featuredTrack.codec} • {Math.round(featuredTrack.sampleRate / 1000)}kHz/{featuredTrack.bitDepth}b • {featuredTrack.bitrate} kbps
-                  </span>
-                </div>
-                <h1 className="text-lg sm:text-xl md:text-2xl font-extrabold text-white tracking-tight truncate">
-                  {featuredTrack.title}
-                </h1>
-                <p className="text-xs sm:text-sm text-slate-300 font-medium truncate">
-                  <button
-                    onClick={() => onNavigateToArtist(featuredTrack.artist)}
-                    className="hover:text-cyan-400 hover:underline"
-                  >
-                    {featuredTrack.artist}
-                  </button>
-                  <span className="mx-2 text-slate-600">·</span>
-                  <button
-                    onClick={() => onNavigateToAlbum(featuredTrack.album, featuredTrack.albumId)}
-                    className="text-slate-400 hover:text-white hover:underline"
-                  >
-                    {featuredTrack.album}
-                  </button>
-                </p>
-              </div>
-            </div>
-
-            {/* Center: Live Inline Scrubber & Mini Transport (when currently active) */}
-            {currentTrack?.id === featuredTrack.id && duration > 0 && (
-              <div className="flex flex-col items-center justify-center min-w-0 flex-1 max-w-sm lg:max-w-md w-full px-2">
-                <div className="flex items-center gap-3 mb-1">
-                  {onPrevTrack && (
-                    <button
-                      onClick={onPrevTrack}
-                      className="p-1 text-slate-400 hover:text-white transition"
-                      title="Previous Track"
-                    >
-                      <SkipBack className="w-4 h-4 fill-current" />
-                    </button>
-                  )}
-                  {onTogglePlay && (
-                    <button
-                      onClick={onTogglePlay}
-                      className="w-8 h-8 rounded-full bg-cyan-400 text-slate-950 flex items-center justify-center hover:opacity-90 active:scale-95 transition"
-                      title={isPlaying ? 'Pause' : 'Play'}
-                    >
-                      {isPlaying ? <Pause className="w-4 h-4 fill-current" /> : <Play className="w-4 h-4 fill-current ml-0.5" />}
-                    </button>
-                  )}
-                  {onNextTrack && (
-                    <button
-                      onClick={onNextTrack}
-                      className="p-1 text-slate-400 hover:text-white transition"
-                      title="Next Track"
-                    >
-                      <SkipForward className="w-4 h-4 fill-current" />
-                    </button>
-                  )}
-                </div>
-
-                <div className="w-full flex items-center gap-2">
-                  <span className="text-[10px] font-mono text-slate-400 tabular-nums shrink-0">
-                    {formatDuration(currentTime)}
-                  </span>
-                  <div className="relative flex-1 group flex items-center">
-                    <input
-                      type="range"
-                      min="0"
-                      max={duration}
-                      step="0.5"
-                      value={currentTime}
-                      onChange={(e) => onSeek?.(parseFloat(e.target.value))}
-                      className="w-full h-1.5 bg-white/10 rounded-lg appearance-none cursor-pointer accent-cyan-400"
-                    />
-                  </div>
-                  <span className="text-[10px] font-mono text-slate-500 tabular-nums shrink-0">
-                    {formatDuration(duration)}
-                  </span>
-                </div>
-              </div>
-            )}
-
-            {/* Right: Quick Action Buttons */}
-            <div className="flex items-center gap-2.5 shrink-0 self-start lg:self-center flex-wrap sm:flex-nowrap">
-              <button
-                onClick={() => onPlayQueue(heavyRotationTracks)}
-                className="px-3.5 sm:px-4 py-2 sm:py-2.5 rounded-xl bg-cyan-400 hover:bg-cyan-300 text-slate-950 text-xs font-bold flex items-center gap-2 shadow-lg shadow-cyan-500/20 active:scale-95 transition whitespace-nowrap"
-              >
-                <Flame className="w-4 h-4" />
-                <span>Heavy Rotation</span>
-              </button>
-              <button
-                onClick={() => onNavigateView('tracks')}
-                className="px-3.5 sm:px-4 py-2 sm:py-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-xs font-semibold text-slate-200 transition whitespace-nowrap"
-              >
-                View Library
-              </button>
-            </div>
-          </div>
-        </section>
-      )}
+    <div className="flex-1 flex flex-col h-full overflow-y-auto p-4 sm:p-6 pt-6 sm:pt-8 space-y-6 sm:space-y-8 select-none">
 
       {/* Library Telemetry Stats Bar */}
       {homeHc.showTelemetryStats !== false && (

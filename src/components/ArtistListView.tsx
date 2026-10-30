@@ -53,6 +53,7 @@ interface ArtistListViewProps {
   onSearchArtistArt?: (query: string, artist: Artist) => void;
   onContextMenuTrack?: (e: React.MouseEvent, track: Track) => void;
   onContextMenuArtist?: (e: React.MouseEvent, artist: Artist) => void;
+  onContextMenuAlbum?: (e: React.MouseEvent, album: Album) => void;
   layoutConfig?: LayoutConfig;
   onUpdateLayout?: (partial: Partial<LayoutConfig>) => void;
 }
@@ -78,6 +79,7 @@ export const ArtistListView: React.FC<ArtistListViewProps> = ({
   onSearchArtistArt,
   onContextMenuTrack,
   onContextMenuArtist,
+  onContextMenuAlbum,
   layoutConfig,
   onUpdateLayout,
 }) => {
@@ -728,6 +730,10 @@ export const ArtistListView: React.FC<ArtistListViewProps> = ({
                     setDraggedAlbumId(album.id);
                   }}
                   onDragEnd={() => setDraggedAlbumId(null)}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    onContextMenuAlbum?.(e, album);
+                  }}
                   className="rounded-2xl bg-white/[0.04] border border-white/10 overflow-hidden transition"
                 >
                   {/* Album Row Banner */}

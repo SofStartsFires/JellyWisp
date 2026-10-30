@@ -5,6 +5,8 @@ import {
   Heart,
   Clock,
   ArrowUpDown,
+  ArrowUp,
+  ArrowDown,
   ListPlus,
   Tag,
   Columns,
@@ -118,6 +120,17 @@ export const TrackListView: React.FC<TrackListViewProps> = ({
       setSortField(field);
       setSortAsc(true);
     }
+  };
+
+  const renderSortIcon = (field: SortField) => {
+    if (sortField !== field) {
+      return <ArrowUpDown className="w-3 h-3 text-slate-500 opacity-60 hover:opacity-100" />;
+    }
+    return sortAsc ? (
+      <ArrowUp className="w-3 h-3 text-[var(--fin-accent)] font-bold" title="Sorted Ascending" />
+    ) : (
+      <ArrowDown className="w-3 h-3 text-[var(--fin-accent)] font-bold" title="Sorted Descending" />
+    );
   };
 
   // Memoized sorting so 80,000+ tracks are NEVER re-sorted on playback timeupdate ticks
@@ -319,7 +332,7 @@ export const TrackListView: React.FC<TrackListViewProps> = ({
           onClick={() => handleSort('title')}
         >
           <span>Title & Artist</span>
-          <ArrowUpDown className="w-3 h-3 text-slate-500" />
+          {renderSortIcon('title')}
         </div>
 
         {cols.albumArtist && (
@@ -328,7 +341,7 @@ export const TrackListView: React.FC<TrackListViewProps> = ({
             onClick={() => handleSort('albumArtist')}
           >
             <span>Album Artist</span>
-            <ArrowUpDown className="w-3 h-3 text-slate-500" />
+            {renderSortIcon('albumArtist')}
           </div>
         )}
 
@@ -338,7 +351,7 @@ export const TrackListView: React.FC<TrackListViewProps> = ({
             onClick={() => handleSort('album')}
           >
             <span>Album</span>
-            <ArrowUpDown className="w-3 h-3 text-slate-500" />
+            {renderSortIcon('album')}
           </div>
         )}
 
@@ -348,7 +361,7 @@ export const TrackListView: React.FC<TrackListViewProps> = ({
             onClick={() => handleSort('genre')}
           >
             <span>Genre</span>
-            <ArrowUpDown className="w-3 h-3 text-slate-500" />
+            {renderSortIcon('genre')}
           </div>
         )}
 
@@ -358,7 +371,7 @@ export const TrackListView: React.FC<TrackListViewProps> = ({
             onClick={() => handleSort('decade')}
           >
             <span>Decade</span>
-            <ArrowUpDown className="w-3 h-3 text-slate-500" />
+            {renderSortIcon('decade')}
           </div>
         )}
 
@@ -368,7 +381,7 @@ export const TrackListView: React.FC<TrackListViewProps> = ({
             onClick={() => handleSort('year')}
           >
             <span>Year</span>
-            <ArrowUpDown className="w-3 h-3 text-slate-500" />
+            {renderSortIcon('year')}
           </div>
         )}
 
@@ -378,7 +391,7 @@ export const TrackListView: React.FC<TrackListViewProps> = ({
             onClick={() => handleSort('bpm')}
           >
             <span>BPM</span>
-            <ArrowUpDown className="w-3 h-3 text-slate-500" />
+            {renderSortIcon('bpm')}
           </div>
         )}
 
@@ -388,7 +401,7 @@ export const TrackListView: React.FC<TrackListViewProps> = ({
             onClick={() => handleSort('bitrate')}
           >
             <span>Audio Specs</span>
-            <ArrowUpDown className="w-3 h-3 text-slate-500" />
+            {renderSortIcon('bitrate')}
           </div>
         )}
 
@@ -398,6 +411,7 @@ export const TrackListView: React.FC<TrackListViewProps> = ({
             onClick={() => handleSort('playCount')}
           >
             <span>Plays</span>
+            {renderSortIcon('playCount')}
           </div>
         )}
 
@@ -405,7 +419,8 @@ export const TrackListView: React.FC<TrackListViewProps> = ({
           className="w-14 cursor-pointer hover:text-white flex items-center justify-end gap-1 shrink-0"
           onClick={() => handleSort('duration')}
         >
-          <Clock className="w-3 h-3" />
+          <span>Duration</span>
+          {renderSortIcon('duration')}
         </div>
 
         <div className="w-20 text-right shrink-0">Actions</div>

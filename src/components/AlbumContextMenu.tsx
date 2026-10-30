@@ -18,6 +18,7 @@ interface AlbumContextMenuProps {
   position: { x: number; y: number } | null;
   onClose: () => void;
   onPlayAlbum: (album: Album) => void;
+  onPlayNext?: (album: Album) => void;
   onAddToQueue?: (album: Album) => void;
   onNavigateToArtist?: (artistName: string) => void;
   onGoToArtist?: (artistName: string) => void;
@@ -36,6 +37,7 @@ export const AlbumContextMenu: React.FC<AlbumContextMenuProps> = ({
   position,
   onClose,
   onPlayAlbum,
+  onPlayNext,
   onAddToQueue,
   onNavigateToArtist,
   onGoToArtist,
@@ -119,6 +121,19 @@ export const AlbumContextMenu: React.FC<AlbumContextMenuProps> = ({
           <Play className="w-3.5 h-3.5 fill-current shrink-0" />
           <span>Play Full Album</span>
         </button>
+
+        {onPlayNext && (
+          <button
+            onClick={() => {
+              onPlayNext(album);
+              onClose();
+            }}
+            className="w-full px-3.5 py-2 flex items-center gap-2.5 text-slate-300 hover:text-white hover:bg-white/10 transition"
+          >
+            <CornerDownRight className="w-3.5 h-3.5 shrink-0 text-cyan-400" />
+            <span>Play Album Next</span>
+          </button>
+        )}
 
         {onAddToQueue && (
           <button
