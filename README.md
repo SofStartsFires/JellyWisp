@@ -36,4 +36,6 @@ AI tools were utilized to generate the initial Electron and Vite boilerplate, dr
 All core logic, layouts, features, and final decisions were manually curated.
 
 I have experience, but not enough to do what I fully envisioned for this project, please decide for yourself if this is acceptable for you!
+It most certainly wanted to call it FinAmp, but none of this project is related to FinAmp, but it may appear in commit messages.
+That's a fantastic project though, support it! https://github.com/finamp-app/finamp
 
