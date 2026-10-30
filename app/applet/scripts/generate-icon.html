@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"></head>
+<body style="margin:0; background:transparent;">
+<canvas id="canvas" width="512" height="512"></canvas>
+<script>
+  const img = new Image();
+  img.onload = () => {
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, 512, 512);
+    ctx.drawImage(img, 0, 0, 512, 512);
+    const dataUrl = canvas.toDataURL('image/png');
+    // Send back via window title or file write
+    const { ipcRenderer } = require('electron');
+    ipcRenderer.send('icon-generated', dataUrl);
+  };
+  img.src = '../public/icon.svg';
+</script>
+</body>
+</html>
