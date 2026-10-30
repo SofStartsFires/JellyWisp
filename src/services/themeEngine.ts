@@ -7,14 +7,18 @@ export const PRESET_THEMES: ThemeConfig[] = [
     accentColor: '#06b6d4',
     bgColor: '#07090e',
     surfaceColor: '#0e131f',
+    titlebarColor: '#060911',
     sidebarColor: '#0a0e18',
     playerColor: '#0b101c',
     cardColor: '#121829',
     textPrimary: '#f8fafc',
     textSecondary: '#94a3b8',
+    trackTitleColor: '#f8fafc',
+    artistNameColor: '#94a3b8',
+    albumNameColor: '#cbd5e1',
     borderColor: 'rgba(6, 182, 212, 0.25)',
     blurPx: 16,
-    sidebarOpacity: 0.85,
+    sidebarOpacity: 0.88,
     playerOpacity: 0.92,
     cardOpacity: 0.70,
     customCss: `/* Cyberpunk Neon Glow */
@@ -29,14 +33,18 @@ export const PRESET_THEMES: ThemeConfig[] = [
   {
     id: 'oled-pitch-black',
     name: 'OLED Pitch Black',
-    accentColor: '#ffffff',
+    accentColor: '#38bdf8',
     bgColor: '#000000',
-    surfaceColor: '#0a0a0a',
-    sidebarColor: '#000000',
+    surfaceColor: '#080808',
+    titlebarColor: '#000000',
+    sidebarColor: '#030303',
     playerColor: '#050505',
     cardColor: '#0c0c0c',
     textPrimary: '#ffffff',
     textSecondary: '#a3a3a3',
+    trackTitleColor: '#ffffff',
+    artistNameColor: '#a3a3a3',
+    albumNameColor: '#d4d4d4',
     borderColor: 'rgba(255, 255, 255, 0.12)',
     blurPx: 8,
     sidebarOpacity: 1.0,
@@ -54,17 +62,21 @@ export const PRESET_THEMES: ThemeConfig[] = [
     id: 'tokyo-dusk',
     name: 'Tokyo Dusk',
     accentColor: '#ec4899',
-    bgColor: '#0f0c1b',
-    surfaceColor: '#18132b',
-    sidebarColor: '#130e24',
-    playerColor: '#151029',
-    cardColor: '#20183b',
+    bgColor: '#0f0a1c',
+    surfaceColor: '#1a1230',
+    titlebarColor: '#120b22',
+    sidebarColor: '#160e2b',
+    playerColor: '#191030',
+    cardColor: '#221740',
     textPrimary: '#fdf2f8',
-    textSecondary: '#cbd5e1',
-    borderColor: 'rgba(236, 72, 153, 0.25)',
+    textSecondary: '#f472b6',
+    trackTitleColor: '#fdf2f8',
+    artistNameColor: '#f9a8d4',
+    albumNameColor: '#e9d5ff',
+    borderColor: 'rgba(236, 72, 153, 0.28)',
     blurPx: 18,
-    sidebarOpacity: 0.82,
-    playerOpacity: 0.88,
+    sidebarOpacity: 0.90,
+    playerOpacity: 0.92,
     cardOpacity: 0.65,
     customCss: `/* Tokyo Dusk City Lights */
 .finamp-header-gradient {
@@ -75,17 +87,21 @@ export const PRESET_THEMES: ThemeConfig[] = [
     id: 'vintage-hifi-walnut',
     name: 'Vintage Hi-Fi Walnut',
     accentColor: '#f59e0b',
-    bgColor: '#120f0d',
-    surfaceColor: '#1c1714',
-    sidebarColor: '#171310',
-    playerColor: '#191411',
-    cardColor: '#241e1a',
+    bgColor: '#140f0b',
+    surfaceColor: '#211812',
+    titlebarColor: '#17110c',
+    sidebarColor: '#1c150f',
+    playerColor: '#221912',
+    cardColor: '#291f17',
     textPrimary: '#fef3c7',
-    textSecondary: '#d97706',
-    borderColor: 'rgba(245, 158, 11, 0.25)',
+    textSecondary: '#fbbf24',
+    trackTitleColor: '#fef3c7',
+    artistNameColor: '#fcd34d',
+    albumNameColor: '#fde68a',
+    borderColor: 'rgba(245, 158, 11, 0.28)',
     blurPx: 12,
-    sidebarOpacity: 0.90,
-    playerOpacity: 0.95,
+    sidebarOpacity: 0.94,
+    playerOpacity: 0.96,
     cardOpacity: 0.80,
     customCss: `/* Analog Warmth & VU Needle */
 .finamp-vu-meter {
@@ -96,17 +112,21 @@ export const PRESET_THEMES: ThemeConfig[] = [
     id: 'nordic-slate',
     name: 'Nordic Slate',
     accentColor: '#38bdf8',
-    bgColor: '#0b111a',
-    surfaceColor: '#131c2a',
-    sidebarColor: '#0f1722',
-    playerColor: '#101926',
-    cardColor: '#172233',
+    bgColor: '#0b121e',
+    surfaceColor: '#131f33',
+    titlebarColor: '#0d1626',
+    sidebarColor: '#101b2d',
+    playerColor: '#121f34',
+    cardColor: '#17263f',
     textPrimary: '#f1f5f9',
     textSecondary: '#94a3b8',
-    borderColor: 'rgba(56, 189, 248, 0.2)',
+    trackTitleColor: '#f0f9ff',
+    artistNameColor: '#7dd3fc',
+    albumNameColor: '#bae6fd',
+    borderColor: 'rgba(56, 189, 248, 0.25)',
     blurPx: 20,
-    sidebarOpacity: 0.80,
-    playerOpacity: 0.85,
+    sidebarOpacity: 0.88,
+    playerOpacity: 0.92,
     cardOpacity: 0.60,
     customCss: `/* Frosted Nordic Minimalism */
 .finamp-frosted {
@@ -117,22 +137,48 @@ export const PRESET_THEMES: ThemeConfig[] = [
     id: 'aurora-borealis',
     name: 'Aurora Borealis',
     accentColor: '#10b981',
-    bgColor: '#051111',
-    surfaceColor: '#091c1b',
-    sidebarColor: '#061615',
-    playerColor: '#081918',
-    cardColor: '#0c2423',
+    bgColor: '#041210',
+    surfaceColor: '#08201d',
+    titlebarColor: '#051715',
+    sidebarColor: '#071c19',
+    playerColor: '#09221e',
+    cardColor: '#0d2b27',
     textPrimary: '#ecfdf5',
     textSecondary: '#6ee7b7',
-    borderColor: 'rgba(16, 185, 129, 0.25)',
+    trackTitleColor: '#ecfdf5',
+    artistNameColor: '#6ee7b7',
+    albumNameColor: '#a7f3d0',
+    borderColor: 'rgba(16, 185, 129, 0.28)',
     blurPx: 16,
-    sidebarOpacity: 0.82,
-    playerOpacity: 0.90,
+    sidebarOpacity: 0.90,
+    playerOpacity: 0.94,
     cardOpacity: 0.70,
     customCss: `/* Aurora Emerald Glow */
 .finamp-active-nav {
   box-shadow: inset 0 0 15px rgba(16, 185, 129, 0.25);
 }`,
+  },
+  {
+    id: 'crimson-velvet',
+    name: 'Crimson Velvet',
+    accentColor: '#f43f5e',
+    bgColor: '#14060a',
+    surfaceColor: '#240b12',
+    titlebarColor: '#18070c',
+    sidebarColor: '#1e0910',
+    playerColor: '#230b13',
+    cardColor: '#2c0e18',
+    textPrimary: '#fff1f2',
+    textSecondary: '#fda4af',
+    trackTitleColor: '#fff1f2',
+    artistNameColor: '#fda4af',
+    albumNameColor: '#fecdd3',
+    borderColor: 'rgba(244, 63, 94, 0.28)',
+    blurPx: 16,
+    sidebarOpacity: 0.92,
+    playerOpacity: 0.95,
+    cardOpacity: 0.75,
+    customCss: '',
   },
 ];
 
@@ -146,7 +192,7 @@ export class ThemeEngine {
     const saved = localStorage.getItem(STORAGE_KEY_THEME);
     if (saved) {
       try {
-        this.currentTheme = JSON.parse(saved);
+        this.currentTheme = { ...PRESET_THEMES[0], ...JSON.parse(saved) };
       } catch {
         this.currentTheme = { ...PRESET_THEMES[0] };
       }
@@ -199,14 +245,26 @@ export class ThemeEngine {
     const t = this.currentTheme;
     const root = document.documentElement;
 
+    const titlebarColor = t.titlebarColor || t.sidebarColor;
+    const trackTitleColor = t.trackTitleColor || t.textPrimary || '#f8fafc';
+    const artistNameColor = t.artistNameColor || t.textSecondary || '#94a3b8';
+    const albumNameColor = t.albumNameColor || t.textSecondary || '#cbd5e1';
+
     root.style.setProperty('--fin-accent', t.accentColor);
     root.style.setProperty('--fin-bg', t.bgColor);
     root.style.setProperty('--fin-surface', t.surfaceColor);
+    root.style.setProperty('--fin-titlebar', titlebarColor);
     root.style.setProperty('--fin-sidebar', t.sidebarColor);
     root.style.setProperty('--fin-player', t.playerColor);
     root.style.setProperty('--fin-card', t.cardColor);
     root.style.setProperty('--fin-border', t.borderColor);
     root.style.setProperty('--fin-blur', `${t.blurPx}px`);
+
+    root.style.setProperty('--fin-text-primary', t.textPrimary || '#f8fafc');
+    root.style.setProperty('--fin-text-secondary', t.textSecondary || '#94a3b8');
+    root.style.setProperty('--fin-text-track', trackTitleColor);
+    root.style.setProperty('--fin-text-artist', artistNameColor);
+    root.style.setProperty('--fin-text-album', albumNameColor);
 
     root.style.setProperty('--fin-sidebar-opacity', `${t.sidebarOpacity}`);
     root.style.setProperty('--fin-player-opacity', `${t.playerOpacity}`);
@@ -217,23 +275,34 @@ export class ThemeEngine {
         :root {
           --fin-accent: ${t.accentColor};
           --fin-bg: ${t.bgColor};
+          --fin-surface: ${t.surfaceColor};
+          --fin-titlebar: ${titlebarColor};
+          --fin-sidebar: ${t.sidebarColor};
+          --fin-player: ${t.playerColor};
+          --fin-card: ${t.cardColor};
+          --fin-text-primary: ${t.textPrimary || '#f8fafc'};
+          --fin-text-secondary: ${t.textSecondary || '#94a3b8'};
+          --fin-text-track: ${trackTitleColor};
+          --fin-text-artist: ${artistNameColor};
+          --fin-text-album: ${albumNameColor};
+        }
+        .finamp-titlebar {
+          background-color: color-mix(in srgb, ${titlebarColor} 94%, transparent) !important;
+          backdrop-filter: blur(${t.blurPx}px);
         }
         .finamp-sidebar {
-          background-color: ${t.sidebarColor};
-          opacity: ${t.sidebarOpacity};
+          background-color: color-mix(in srgb, ${t.sidebarColor} ${Math.round(t.sidebarOpacity * 100)}%, transparent) !important;
           backdrop-filter: blur(${t.blurPx}px);
         }
         .finamp-player-bar {
-          background-color: ${t.playerColor};
-          opacity: ${t.playerOpacity};
+          background-color: color-mix(in srgb, ${t.playerColor} ${Math.round(t.playerOpacity * 100)}%, transparent) !important;
           backdrop-filter: blur(${t.blurPx}px);
         }
         .finamp-card {
-          background-color: ${t.cardColor};
-          opacity: ${t.cardOpacity};
+          background-color: color-mix(in srgb, ${t.cardColor} ${Math.round(t.cardOpacity * 100)}%, transparent);
           backdrop-filter: blur(${t.blurPx}px);
         }
-        ${t.customCss}
+        ${t.customCss || ''}
       `;
     }
   }

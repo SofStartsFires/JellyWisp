@@ -8,7 +8,7 @@ import {
 } from '../types/index.ts';
 import { formatDuration } from './audioMath.ts';
 
-export function getFontFamilyCss(family: FontFamilyChoice): string {
+export function getFontFamilyCss(family: FontFamilyChoice, customName?: string): string {
   switch (family) {
     case 'sans':
       return "'Plus Jakarta Sans', system-ui, -apple-system, sans-serif";
@@ -20,6 +20,19 @@ export function getFontFamilyCss(family: FontFamilyChoice): string {
       return "'Inter', system-ui, sans-serif";
     case 'serif':
       return "'Playfair Display', Georgia, serif";
+    case 'outfit':
+      return "'Outfit', system-ui, -apple-system, sans-serif";
+    case 'syne':
+      return "'Syne', system-ui, sans-serif";
+    case 'cinzel':
+      return "'Cinzel', Georgia, serif";
+    case 'firacode':
+      return "'Fira Code', 'JetBrains Mono', monospace";
+    case 'custom':
+      if (customName && customName.trim()) {
+        return `'${customName.trim().replace(/['"]/g, '')}', system-ui, sans-serif`;
+      }
+      return "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
     case 'system':
     default:
       return "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";

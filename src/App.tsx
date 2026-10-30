@@ -3,17 +3,14 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import {
-  Move,
   PanelTop,
   PanelBottom,
   PanelLeft,
   PanelRight,
   Layers,
   RotateCcw,
-  Sparkles,
-  Check,
 } from 'lucide-react';
 import { Titlebar, SearchBarSection } from './components/Titlebar.tsx';
 import { Sidebar, NavView } from './components/Sidebar.tsx';
@@ -21,6 +18,7 @@ import { PlayerBar } from './components/PlayerBar.tsx';
 import { TrackListView } from './components/TrackListView.tsx';
 import { AlbumGridView } from './components/AlbumGridView.tsx';
 import { ArtistListView } from './components/ArtistListView.tsx';
+import { GenreDecadeView } from './components/GenreDecadeView.tsx';
 import { SmartPlaylistsView } from './components/SmartPlaylistsView.tsx';
 import { ThemeEditorView } from './components/ThemeEditorView.tsx';
 import { HotkeysView } from './components/HotkeysView.tsx';
@@ -34,11 +32,16 @@ import { LyricsDrawer } from './components/LyricsDrawer.tsx';
 import { QueueDrawer } from './components/QueueDrawer.tsx';
 import { MiniPlayerOverlay } from './components/MiniPlayerOverlay.tsx';
 import { SettingsModal } from './components/SettingsModal.tsx';
+import { NowPlayingModal } from './components/NowPlayingModal.tsx';
+import { TrackContextMenu } from './components/TrackContextMenu.tsx';
+import { AlbumContextMenu } from './components/AlbumContextMenu.tsx';
+import { HomeView } from './components/HomeView.tsx';
 
 import {
   Track,
   Album,
   Artist,
+  AlbumReleaseType,
   JellyfinServerConfig,
   ThemeConfig,
   DspSettings,
@@ -46,18 +49,32 @@ import {
   PerformanceMetrics,
   LayoutConfig,
   DraggableSectionId,
+  LibrarySyncProgress,
+  VisibleSidebarItems,
 } from './types/index.ts';
 import { audioEngine } from './services/audioEngine.ts';
-import { jellyfin } from './services/jellyfinService.ts';
+import { jellyfin, saveAlbumReleaseTypeOverride } from './services/jellyfinService.ts';
 import { themeEngine } from './services/themeEngine.ts';
 import { hotkeyService } from './services/hotkeyService.ts';
 import { layoutEngine, WORKSPACE_PRESETS } from './services/layoutEngine.ts';
 import { resolveSectionDrop } from './utils/layoutMath.ts';
+import { JELLYWISP_COVER_PLACEHOLDER, isPlaceholderArt } from './utils/jellywispArtwork.ts';
 
 export default function App() {
   // Navigation & UI state
-  const [currentView, setCurrentView] = useState<NavView>('tracks');
+  const [currentView, setCurrentView] = useState<NavView>(() => {
+    return layoutEngine.getConfig().defaultStartupView || 'home';
+  });
   const [searchQuery, setSearchQuery] = useState('');
+  const [initialSelectedAlbum, setInitialSelectedAlbum] = useState<{
+    title: string;
+    id?: string;
+  } | null>(null);
+  const [initialSelectedArtistName, setInitialSelectedArtistName] = useState<string | null>(null);
+
+  // Playback tracking refs for real Jellyfin sessions & Last.fm scrobbling
+  const lastReportedProgressRef = useRef<{ trackId: string; time: number } | null>(null);
+  const hasScrobbledCurrentRef = useRef<string | null>(null);
 
   // Interactive Drag & Drop Layout state
   const [isLayoutEditMode, setIsLayoutEditMode] = useState(false);
@@ -100,8 +117,9 @@ export default function App() {
     hotkeyService.getBindings()
   );
 
-  // Modals & Panels
+  // Modals, Context Menu & Panels
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
+  const [isDedicatedPlayerOpen, setIsDedicatedPlayerOpen] = useState(false);
   const [isVisualizerOpen, setIsVisualizerOpen] = useState(false);
   const [isDspModalOpen, setIsDspModalOpen] = useState(false);
   const [isSpecsModalOpen, setIsSpecsModalOpen] = useState(false);
@@ -111,32 +129,117 @@ export default function App() {
   const [isMiniPlayerOpen, setIsMiniPlayerOpen] = useState(false);
   const [editingTrack, setEditingTrack] = useState<Track | null>(null);
   const [isCoverArtFinderOpen, setIsCoverArtFinderOpen] = useState(false);
+  const [coverArtSearchState, setCoverArtSearchState] = useState<{
+    query: string;
+    mode: 'album' | 'artist' | 'all';
+    label?: string;
+    targetTrack?: Track;
+    targetArtistName?: string;
+  } | null>(null);
+  const [contextMenuState, setContextMenuState] = useState<{
+    track: Track;
+    position: { x: number; y: number };
+  } | null>(null);
+  const [albumContextMenuState, setAlbumContextMenuState] = useState<{
+    album: Album;
+    position: { x: number; y: number };
+  } | null>(null);
 
-  // Fetch initial music data
+  const [isSyncingLibrary, setIsSyncingLibrary] = useState(false);
+  const [librarySyncError, setLibrarySyncError] = useState<string | null>(null);
+  const [syncProgress, setSyncProgress] = useState<LibrarySyncProgress | null>(null);
+
+  // Server-side search results for instant search while 80,000+ tracks are indexing
+  const [serverSearchResults, setServerSearchResults] = useState<{
+    tracks: Track[];
+    albums: Album[];
+    artists: Artist[];
+  } | null>(null);
+
+  // Fetch music data from active Jellyfin server or Demo library (with progressive 80k+ streaming)
   const loadLibrary = useCallback(async () => {
-    const data = await jellyfin.fetchMusicData();
+    setIsSyncingLibrary(true);
+    setLibrarySyncError(null);
+
+    const data = await jellyfin.fetchMusicData((partial, prog) => {
+      setTracks(partial.tracks);
+      setAlbums(partial.albums);
+      setArtists(partial.artists);
+      setSyncProgress(prog);
+    });
+
+    setIsSyncingLibrary(false);
+
+    if (data.authExpired) {
+      setServerConfig(jellyfin.getConfig());
+      setIsServerModalOpen(true);
+    }
+
+    if (data.error) {
+      setLibrarySyncError(data.error);
+    }
+
+    if (data.progress) {
+      setSyncProgress(data.progress);
+    }
+
     setTracks(data.tracks);
     setAlbums(data.albums);
     setArtists(data.artists);
-    setQueue(data.tracks);
-    if (!currentTrack && data.tracks.length > 0) {
-      setCurrentTrack(data.tracks[0]);
-    }
-  }, [currentTrack]);
+    // Keep queue lightweight (first 250 tracks) instead of cloning 80,000 items
+    setQueue(data.tracks.slice(0, 250));
+    setCurrentTrack((prev) => {
+      if (data.tracks.length === 0) {
+        audioEngine.setInitialTrack(null);
+        return null;
+      }
+      if (prev && data.tracks.some((t) => t.id === prev.id)) {
+        return prev;
+      }
+      audioEngine.setInitialTrack(data.tracks[0]);
+      return data.tracks[0];
+    });
+  }, []);
 
   useEffect(() => {
     loadLibrary();
   }, [loadLibrary]);
 
-  // Audio Engine Listeners
+  // Audio Engine Listeners & Jellyfin Server Playback Reporting
   useEffect(() => {
     audioEngine.onTimeUpdate((curr, dur) => {
       setCurrentTime(curr);
       setDuration(dur);
+
+      if (currentTrack) {
+        // Throttled progress report every 8 seconds
+        const lastTime = lastReportedProgressRef.current?.trackId === currentTrack.id
+          ? lastReportedProgressRef.current.time
+          : -999;
+        if (Math.abs(curr - lastTime) >= 8) {
+          jellyfin.reportPlaybackProgress(currentTrack, curr, !isPlaying);
+          lastReportedProgressRef.current = { trackId: currentTrack.id, time: curr };
+        }
+
+        // Scrobble track when reached 80% duration (or 30s)
+        if (dur > 15 && curr >= dur * 0.8 && hasScrobbledCurrentRef.current !== currentTrack.id) {
+          hasScrobbledCurrentRef.current = currentTrack.id;
+          jellyfin.markTrackPlayed(currentTrack.id);
+          setTracks((prev) =>
+            prev.map((t) => (t.id === currentTrack.id ? { ...t, playCount: (t.playCount || 0) + 1 } : t))
+          );
+          setCurrentTrack((prev) =>
+            prev && prev.id === currentTrack.id ? { ...prev, playCount: (prev.playCount || 0) + 1 } : prev
+          );
+        }
+      }
     });
 
     audioEngine.onPlayStateChange((playing) => {
       setIsPlaying(playing);
+      if (currentTrack) {
+        jellyfin.reportPlaybackProgress(currentTrack, currentTime, !playing);
+      }
     });
 
     audioEngine.onMetrics((m) => {
@@ -144,19 +247,58 @@ export default function App() {
     });
 
     audioEngine.onTrackEnded(() => {
+      if (currentTrack) {
+        if (hasScrobbledCurrentRef.current !== currentTrack.id) {
+          hasScrobbledCurrentRef.current = currentTrack.id;
+          jellyfin.markTrackPlayed(currentTrack.id);
+          setTracks((prev) =>
+            prev.map((t) => (t.id === currentTrack.id ? { ...t, playCount: (t.playCount || 0) + 1 } : t))
+          );
+          setCurrentTrack((prev) =>
+            prev && prev.id === currentTrack.id ? { ...prev, playCount: (prev.playCount || 0) + 1 } : prev
+          );
+        }
+        jellyfin.reportPlaybackStopped(currentTrack, duration);
+      }
       handleNextTrack();
     });
-  }, [queue, currentTrack, repeatMode, isShuffle]);
+  }, [queue, currentTrack, repeatMode, isShuffle, isPlaying, currentTime, duration]);
 
-  // Playback actions
-  const handlePlayTrack = useCallback((track: Track) => {
-    setCurrentTrack(track);
-    audioEngine.playTrack(track);
-  }, []);
+  // Playback actions (windows queue around selected track for 80,000+ track performance)
+  const handlePlayTrack = useCallback(
+    (track: Track, contextTracks?: Track[], indexInContext?: number) => {
+      if (currentTrack && currentTrack.id !== track.id) {
+        jellyfin.reportPlaybackStopped(currentTrack, currentTime);
+      }
+
+      setCurrentTrack(track);
+      audioEngine.playTrack(track);
+
+      // Report playback start to Jellyfin server (for Last.fm scrobblers and server active sessions)
+      jellyfin.reportPlaybackStart(track);
+      hasScrobbledCurrentRef.current = null;
+      lastReportedProgressRef.current = { trackId: track.id, time: 0 };
+
+      if (contextTracks && contextTracks.length > 0) {
+        const startIdx =
+          indexInContext !== undefined
+            ? indexInContext
+            : Math.max(
+                0,
+                contextTracks.findIndex((t) => t.id === track.id)
+              );
+        const windowedQueue = contextTracks.slice(startIdx, startIdx + 250);
+        if (windowedQueue.length > 0) {
+          setQueue(windowedQueue);
+        }
+      }
+    },
+    [currentTrack, currentTime]
+  );
 
   const handleTogglePlay = useCallback(() => {
     if (!currentTrack && tracks.length > 0) {
-      handlePlayTrack(tracks[0]);
+      handlePlayTrack(tracks[0], tracks, 0);
       return;
     }
     audioEngine.togglePlay();
@@ -223,16 +365,24 @@ export default function App() {
   };
 
   const handlePlayAlbum = (album: Album) => {
-    if (album.tracks.length > 0) {
-      setQueue(album.tracks);
-      handlePlayTrack(album.tracks[0]);
+    const albumTracks =
+      album.tracks && album.tracks.length > 0
+        ? album.tracks
+        : tracks.filter(
+            (t) =>
+              t.albumId === album.id ||
+              t.album.toLowerCase() === album.title.toLowerCase()
+          );
+    if (albumTracks.length > 0) {
+      setQueue(albumTracks);
+      handlePlayTrack(albumTracks[0], albumTracks, 0);
     }
   };
 
   const handlePlayQueueList = (newQueue: Track[]) => {
     if (newQueue.length > 0) {
       setQueue(newQueue);
-      handlePlayTrack(newQueue[0]);
+      handlePlayTrack(newQueue[0], newQueue, 0);
     }
   };
 
@@ -240,9 +390,25 @@ export default function App() {
     setQueue((prev) => [...prev, track]);
   };
 
+  const handlePlayNext = (track: Track) => {
+    setQueue((prev) => {
+      if (prev.length === 0) return [track];
+      const currentIdx = prev.findIndex((t) => t.id === currentTrack?.id);
+      if (currentIdx === -1) {
+        return [track, ...prev];
+      }
+      const next = [...prev];
+      next.splice(currentIdx + 1, 0, track);
+      return next;
+    });
+  };
+
   const handleToggleFavorite = (trackId: string) => {
     setTracks((prev) =>
       prev.map((t) => (t.id === trackId ? { ...t, isFavorite: !t.isFavorite } : t))
+    );
+    setCurrentTrack((prev) =>
+      prev && prev.id === trackId ? { ...prev, isFavorite: !prev.isFavorite } : prev
     );
   };
 
@@ -259,6 +425,73 @@ export default function App() {
       setCurrentTrack(updated);
     }
   };
+
+  const handleReclassifyAlbum = useCallback((albumId: string, releaseType: AlbumReleaseType, title?: string, artist?: string) => {
+    saveAlbumReleaseTypeOverride(albumId, releaseType, title, artist);
+    setAlbums((prev) =>
+      prev.map((alb) =>
+        alb.id === albumId || (title && alb.title.toLowerCase() === title.toLowerCase())
+          ? { ...alb, releaseType }
+          : alb
+      )
+    );
+  }, []);
+
+  const handleOpenAlbumContextMenu = useCallback((e: React.MouseEvent, album: Album) => {
+    if (e && typeof e.preventDefault === 'function') {
+      e.preventDefault();
+    }
+    setAlbumContextMenuState({
+      album,
+      position: { x: e?.clientX ?? 200, y: e?.clientY ?? 200 },
+    });
+  }, []);
+
+  // Navigation QoL Handlers (Home, Album, Artist, Album Artist, Genre, Decade)
+  const handleGoHome = useCallback(() => {
+    setInitialSelectedAlbum(null);
+    setInitialSelectedArtistName(null);
+    setSearchQuery('');
+    setCurrentView('home');
+  }, []);
+
+  const handleNavigateToAlbum = useCallback((albumTitle: string, albumId?: string) => {
+    setIsDedicatedPlayerOpen(false);
+    setInitialSelectedAlbum({ title: albumTitle, id: albumId });
+    setCurrentView('albums');
+  }, []);
+
+  const handleNavigateToArtist = useCallback((artistName: string) => {
+    setIsDedicatedPlayerOpen(false);
+    setInitialSelectedArtistName(artistName);
+    setCurrentView('artists');
+  }, []);
+
+  const handleNavigateToAlbumArtist = useCallback((albumArtistName: string) => {
+    setIsDedicatedPlayerOpen(false);
+    setInitialSelectedArtistName(albumArtistName);
+    setCurrentView('album-artists');
+  }, []);
+
+  const handleNavigateToGenre = useCallback((_genre: string) => {
+    setIsDedicatedPlayerOpen(false);
+    setCurrentView('genres');
+  }, []);
+
+  const handleNavigateToDecade = useCallback((_decade: string) => {
+    setIsDedicatedPlayerOpen(false);
+    setCurrentView('decades');
+  }, []);
+
+  const handleOpenTrackContextMenu = useCallback((e: React.MouseEvent, track: Track) => {
+    if (e && typeof e.preventDefault === 'function') {
+      e.preventDefault();
+    }
+    setContextMenuState({
+      track,
+      position: { x: e?.clientX ?? 200, y: e?.clientY ?? 200 },
+    });
+  }, []);
 
   const handleUpdateDsp = (settings: Partial<DspSettings>) => {
     audioEngine.updateDspSettings(settings);
@@ -346,40 +579,219 @@ export default function App() {
     repeatMode,
   ]);
 
-  const filteredTracks = tracks.filter((t) => {
-    if (!searchQuery.trim()) return true;
-    const q = searchQuery.toLowerCase();
-    return (
-      t.title.toLowerCase().includes(q) ||
-      t.artist.toLowerCase().includes(q) ||
-      t.album.toLowerCase().includes(q) ||
-      t.genre.toLowerCase().includes(q) ||
-      t.codec.toLowerCase().includes(q)
-    );
-  });
+  // Debounced server-side search when querying an 80,000+ track library
+  useEffect(() => {
+    const q = searchQuery.trim();
+    if (!q || serverConfig.isDemoMode || syncProgress?.isComplete) {
+      setServerSearchResults(null);
+      return;
+    }
+    const timer = setTimeout(async () => {
+      const res = await jellyfin.searchServer(q);
+      setServerSearchResults(res);
+    }, 280);
+    return () => clearTimeout(timer);
+  }, [searchQuery, serverConfig.isDemoMode, syncProgress?.isComplete]);
 
-  const filteredAlbums = albums.filter((a) => {
-    if (!searchQuery.trim()) return true;
-    const q = searchQuery.toLowerCase();
-    return (
-      a.title.toLowerCase().includes(q) ||
-      a.artist.toLowerCase().includes(q) ||
-      a.genre.toLowerCase().includes(q)
-    );
-  });
+  // Derive Album Artists collection from albums & tracks with full artist & album artwork support
+  const albumArtists = useMemo<Artist[]>(() => {
+    const artistByName = new Map<string, Artist>();
+    for (const a of artists) {
+      artistByName.set(a.name.trim().toLowerCase(), a);
+    }
 
-  const filteredArtists = artists.filter((a) => {
-    if (!searchQuery.trim()) return true;
-    const q = searchQuery.toLowerCase();
-    return (
-      a.name.toLowerCase().includes(q) ||
-      a.genres.some((g) => g.toLowerCase().includes(q))
+    const map = new Map<
+      string,
+      {
+        id: string;
+        name: string;
+        coverUrl: string;
+        bio: string;
+        genres: Set<string>;
+        albumMap: Map<string, Album>;
+        trackCount: number;
+      }
+    >();
+
+    for (const alb of albums) {
+      const name = (alb.artist || 'Unknown Album Artist').trim();
+      const key = name.toLowerCase();
+      const matchedArtist = artistByName.get(key);
+      const existing = map.get(key);
+
+      if (existing) {
+        existing.albumMap.set(alb.id, alb);
+        if (alb.genre && alb.genre !== 'Music') existing.genres.add(alb.genre);
+        if (isPlaceholderArt(existing.coverUrl) && !isPlaceholderArt(alb.coverUrl)) {
+          existing.coverUrl = alb.coverUrl;
+        }
+      } else {
+        const artistPortrait =
+          matchedArtist && !isPlaceholderArt(matchedArtist.coverUrl)
+            ? matchedArtist.coverUrl
+            : !isPlaceholderArt(alb.coverUrl)
+            ? alb.coverUrl
+            : jellyfin.getArtistImageUrlByName(name);
+
+        const albumMap = new Map<string, Album>();
+        albumMap.set(alb.id, alb);
+
+        map.set(key, {
+          id: matchedArtist?.id || `aa-${key}`,
+          name,
+          coverUrl: artistPortrait || JELLYWISP_COVER_PLACEHOLDER,
+          bio: matchedArtist?.bio || '',
+          genres: new Set(
+            [
+              ...(alb.genre && alb.genre !== 'Music' ? [alb.genre] : []),
+              ...(matchedArtist?.genres || []),
+            ].filter(Boolean)
+          ),
+          albumMap,
+          trackCount: alb.tracks?.length || 0,
+        });
+      }
+    }
+
+    for (const t of tracks) {
+      const name = (t.albumArtist || t.artist || 'Unknown Album Artist').trim();
+      const key = name.toLowerCase();
+      const matchedArtist = artistByName.get(key);
+      const existing = map.get(key);
+
+      if (existing) {
+        existing.trackCount += 1;
+        if (t.genre && t.genre !== 'Music') existing.genres.add(t.genre);
+        if (isPlaceholderArt(existing.coverUrl) && !isPlaceholderArt(t.coverUrl)) {
+          existing.coverUrl = t.coverUrl;
+        }
+      } else {
+        const artistPortrait =
+          matchedArtist && !isPlaceholderArt(matchedArtist.coverUrl)
+            ? matchedArtist.coverUrl
+            : !isPlaceholderArt(t.coverUrl)
+            ? t.coverUrl
+            : jellyfin.getArtistImageUrlByName(name);
+
+        map.set(key, {
+          id: matchedArtist?.id || `aa-${key}`,
+          name,
+          coverUrl: artistPortrait || JELLYWISP_COVER_PLACEHOLDER,
+          bio: matchedArtist?.bio || '',
+          genres: new Set(t.genre && t.genre !== 'Music' ? [t.genre] : []),
+          albumMap: new Map(),
+          trackCount: 1,
+        });
+      }
+    }
+
+    return Array.from(map.values()).map((item) => {
+      const artistAlbums = Array.from(item.albumMap.values());
+      return {
+        id: item.id,
+        name: item.name,
+        bio:
+          item.bio ||
+          `Album Artist with ${artistAlbums.length} release(s) and ${item.trackCount} track(s) in your library.`,
+        coverUrl: item.coverUrl,
+        albums: artistAlbums,
+        trackCount: item.trackCount,
+        genres: Array.from(item.genres).slice(0, 4),
+      };
+    });
+  }, [albums, tracks, artists]);
+
+  // Memoized filtering so playback timeupdate never re-filters 80,000 tracks
+  const filteredTracks = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return tracks;
+
+    const local = tracks.filter(
+      (t) =>
+        t.title.toLowerCase().includes(q) ||
+        t.artist.toLowerCase().includes(q) ||
+        (t.albumArtist || '').toLowerCase().includes(q) ||
+        t.album.toLowerCase().includes(q) ||
+        t.genre.toLowerCase().includes(q)
     );
-  });
+
+    if (serverSearchResults?.tracks?.length) {
+      const seen = new Set(local.map((t) => t.id));
+      for (const st of serverSearchResults.tracks) {
+        if (!seen.has(st.id)) {
+          local.push(st);
+          seen.add(st.id);
+        }
+      }
+    }
+    return local;
+  }, [tracks, searchQuery, serverSearchResults]);
+
+  const favoriteTracks = useMemo(
+    () => filteredTracks.filter((t) => t.isFavorite),
+    [filteredTracks]
+  );
+
+  const filteredAlbums = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return albums;
+
+    const local = albums.filter(
+      (a) =>
+        a.title.toLowerCase().includes(q) ||
+        a.artist.toLowerCase().includes(q) ||
+        a.genre.toLowerCase().includes(q)
+    );
+
+    if (serverSearchResults?.albums?.length) {
+      const seen = new Set(local.map((a) => a.id));
+      for (const sa of serverSearchResults.albums) {
+        if (!seen.has(sa.id)) {
+          local.push(sa);
+          seen.add(sa.id);
+        }
+      }
+    }
+    return local;
+  }, [albums, searchQuery, serverSearchResults]);
+
+  const filteredArtists = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return artists;
+
+    const local = artists.filter(
+      (a) =>
+        a.name.toLowerCase().includes(q) ||
+        (a.genres || []).some((g) => g.toLowerCase().includes(q))
+    );
+
+    if (serverSearchResults?.artists?.length) {
+      const seen = new Set(local.map((a) => a.id));
+      for (const sar of serverSearchResults.artists) {
+        if (!seen.has(sar.id)) {
+          local.push(sar);
+          seen.add(sar.id);
+        }
+      }
+    }
+    return local;
+  }, [artists, searchQuery, serverSearchResults]);
+
+  const filteredAlbumArtists = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return albumArtists;
+    return albumArtists.filter(
+      (a) =>
+        a.name.toLowerCase().includes(q) ||
+        (a.genres || []).some((g) => g.toLowerCase().includes(q))
+    );
+  }, [albumArtists, searchQuery]);
 
   useEffect(() => {
     const handleEsc = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
+        setContextMenuState(null);
+        setIsDedicatedPlayerOpen(false);
         setIsSettingsModalOpen(false);
         setIsVisualizerOpen(false);
         setIsDspModalOpen(false);
@@ -407,16 +819,29 @@ export default function App() {
     setLayoutConfig(layoutEngine.getConfig());
   };
 
+  const handleToggleSidebarItem = (key: keyof VisibleSidebarItems) => {
+    const current = layoutConfig.visibleSidebarItems || ({} as VisibleSidebarItems);
+    handleUpdateLayout({
+      visibleSidebarItems: {
+        ...current,
+        [key]: current[key] === false ? true : false,
+      },
+    });
+  };
+
   const handleSelectNavView = (view: NavView) => {
     if (view === 'dsp') {
       setIsDspModalOpen(true);
     } else if (view === 'specs') {
       setIsSpecsModalOpen(true);
     } else if (view === 'art-search') {
+      setCoverArtSearchState(null);
       setIsCoverArtFinderOpen(true);
     } else if (view === 'jellyfin-config') {
       setIsServerModalOpen(true);
     } else {
+      setInitialSelectedAlbum(null);
+      setInitialSelectedArtistName(null);
       setCurrentView(view);
     }
   };
@@ -463,7 +888,9 @@ export default function App() {
       onToggleVisualizer={() => setIsVisualizerOpen(true)}
       onToggleMiniPlayer={() => setIsMiniPlayerOpen((v) => !v)}
       onOpenMetadataEditor={(t) => setEditingTrack(t)}
+      onOpenDedicatedPlayer={() => setIsDedicatedPlayerOpen(true)}
       layoutConfig={layoutConfig}
+      onUpdateLayout={handleUpdateLayout}
       onChangePosition={(pos) => handleUpdateLayout({ playerBarPosition: pos })}
       onDragStartSection={(sec) => setDraggedSection(sec)}
       onDragEndSection={() => {
@@ -478,16 +905,22 @@ export default function App() {
     <Sidebar
       currentView={currentView}
       onSelectView={handleSelectNavView}
-      trackCount={tracks.length}
-      albumCount={albums.length}
-      artistCount={artists.length}
+      trackCount={syncProgress?.totalTracks || tracks.length}
+      albumCount={syncProgress?.totalAlbums || albums.length}
+      artistCount={syncProgress?.totalArtists || artists.length}
+      albumArtistCount={albumArtists.length}
       currentTrack={currentTrack}
       onOpenMetadataEditor={(t) => setEditingTrack(t)}
+      onOpenDedicatedPlayer={() => setIsDedicatedPlayerOpen(true)}
       sidebarWidth={layoutConfig.sidebarWidth}
       topTabsHeightPx={layoutConfig.topTabsHeightPx}
       navItemScale={layoutConfig.navItemScale}
       position={layoutConfig.sidebarPosition}
       uppercaseHeaders={layoutConfig.uppercaseHeaders}
+      visibleSidebarItems={layoutConfig.visibleSidebarItems}
+      onToggleSidebarItem={handleToggleSidebarItem}
+      onResizeSidebarWidth={(w) => handleUpdateLayout({ sidebarWidth: w })}
+      onResizeTopTabsHeight={(h) => handleUpdateLayout({ topTabsHeightPx: h })}
       onOpenSettingsModal={() => setIsSettingsModalOpen(true)}
       onMoveNavPosition={(pos) => handleUpdateLayout({ sidebarPosition: pos })}
       onDragStartSection={(sec) => setDraggedSection(sec)}
@@ -499,8 +932,6 @@ export default function App() {
     />
   );
 
-  const isNavHorizontal =
-    layoutConfig.sidebarPosition === 'top' || layoutConfig.sidebarPosition === 'bottom';
   const isPlayerSidebar =
     layoutConfig.playerBarPosition === 'left' || layoutConfig.playerBarPosition === 'right';
   const showDropZones = Boolean(draggedSection) || isLayoutEditMode;
@@ -541,6 +972,7 @@ export default function App() {
         currentTrack={currentTrack}
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
+        onGoHome={handleGoHome}
         onOpenServerModal={() => setIsServerModalOpen(true)}
         onOpenDspModal={() => setIsDspModalOpen(true)}
         onOpenSpecsModal={() => setIsSpecsModalOpen(true)}
@@ -557,7 +989,7 @@ export default function App() {
         }}
       />
 
-      {/* Interactive Drag-and-Drop Layout Studio Bar (when Edit Layout is active or dragging) */}
+      {/* Interactive Drag-and-Drop Layout Bar (when Edit Layout is active or dragging) */}
       {showDropZones && (
         <div
           data-testid="layout-edit-banner"
@@ -565,12 +997,12 @@ export default function App() {
         >
           <div className="flex items-center gap-2.5">
             <span className="px-2 py-0.5 rounded bg-amber-500 text-slate-950 font-mono font-extrabold text-[10px] uppercase">
-              {draggedSection ? `Dragging: ${draggedSection.toUpperCase()}` : 'Drag & Drop Studio'}
+              {draggedSection ? `Dragging: ${draggedSection.toUpperCase()}` : 'Drag & Drop Layout'}
             </span>
             <p className="text-xs text-slate-200 font-medium">
               Drag <strong className="text-cyan-300">Navigation</strong>,{' '}
               <strong className="text-cyan-300">Player</strong>, or{' '}
-              <strong className="text-cyan-300">Search Bar</strong> grip handles into any dock zone below, or click a preset:
+              <strong className="text-cyan-300">Search Bar</strong> grip handles into any dock zone below, or drag any panel border edge to resize:
             </p>
           </div>
 
@@ -594,7 +1026,7 @@ export default function App() {
             </button>
           </div>
 
-          {/* Interactive Drop Target Zones Row (works for both Drag-and-Drop AND Click) */}
+          {/* Interactive Drop Target Zones Row */}
           <div className="w-full grid grid-cols-5 gap-2 pt-1">
             {(
               [
@@ -730,15 +1162,106 @@ export default function App() {
 
         {/* Main Content Area */}
         <main className="flex-1 flex flex-col overflow-hidden bg-transparent relative">
+          {librarySyncError && (
+            <div className="mx-6 mt-4 p-3.5 rounded-xl bg-rose-950/70 border border-rose-500/40 text-xs text-rose-200 flex items-center justify-between gap-3 shrink-0">
+              <span>Jellyfin Sync Error: {librarySyncError}</span>
+              <button
+                onClick={() => setIsServerModalOpen(true)}
+                className="px-3 py-1 rounded-lg bg-rose-500/20 hover:bg-rose-500/30 text-white font-semibold border border-rose-400/30 shrink-0"
+              >
+                Server Settings
+              </button>
+            </div>
+          )}
+
+          {!serverConfig.isDemoMode && !isSyncingLibrary && !librarySyncError && tracks.length === 0 && (
+            <div className="mx-6 mt-4 p-4 rounded-xl bg-indigo-950/60 border border-indigo-500/40 text-xs text-indigo-200 flex items-center justify-between gap-3 shrink-0">
+              <div>
+                <p className="font-bold text-white">
+                  Connected to {serverConfig.serverName} ({serverConfig.username})
+                </p>
+                <p className="text-slate-300 mt-0.5">
+                  No audio tracks were found in the selected library view. Try selecting a different library or resyncing.
+                </p>
+              </div>
+              <button
+                onClick={() => setIsServerModalOpen(true)}
+                className="px-3.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-bold shrink-0"
+              >
+                Change Library / Resync
+              </button>
+            </div>
+          )}
+
+          {currentView === 'home' && (
+            <HomeView
+              tracks={tracks}
+              albums={albums}
+              artists={artists}
+              currentTrack={currentTrack}
+              isPlaying={isPlaying}
+              currentTime={currentTime}
+              duration={duration}
+              onSeek={handleSeek}
+              onTogglePlay={handleTogglePlay}
+              onPrevTrack={handlePrevTrack}
+              onNextTrack={handleNextTrack}
+              onPlayTrack={handlePlayTrack}
+              onPlayAlbum={handlePlayAlbum}
+              onPlayQueue={handlePlayQueueList}
+              onNavigateView={(view: NavView) => setCurrentView(view)}
+              onNavigateToAlbum={handleNavigateToAlbum}
+              onNavigateToArtist={handleNavigateToArtist}
+              onContextMenuTrack={handleOpenTrackContextMenu}
+              onContextMenuAlbum={handleOpenAlbumContextMenu}
+              serverName={serverConfig.isDemoMode ? 'SoundSphere (Demo Library)' : serverConfig.serverName}
+              isConnected={serverConfig.isConnected}
+              metrics={metrics}
+              layoutConfig={layoutConfig}
+            />
+          )}
+
           {currentView === 'tracks' && (
             <TrackListView
               tracks={filteredTracks}
+              totalTrackCount={syncProgress?.totalTracks}
+              syncProgress={syncProgress}
               currentTrack={currentTrack}
               isPlaying={isPlaying}
               onPlayTrack={handlePlayTrack}
               onAddToQueue={handleAddToQueue}
-              onOpenMetadataEditor={(t) => setEditingTrack(t)}
+              onOpenMetadataEditor={(t: Track) => setEditingTrack(t)}
               onToggleFavorite={handleToggleFavorite}
+              onContextMenuTrack={handleOpenTrackContextMenu}
+              onNavigateToAlbum={handleNavigateToAlbum}
+              onNavigateToArtist={handleNavigateToArtist}
+              onNavigateToAlbumArtist={handleNavigateToAlbumArtist}
+              onNavigateToGenre={handleNavigateToGenre}
+              onNavigateToDecade={handleNavigateToDecade}
+              density={layoutConfig.trackListDensity}
+              showTrackBitrate={layoutConfig.showTrackBitrate}
+              layoutConfig={layoutConfig}
+              onUpdateLayout={handleUpdateLayout}
+            />
+          )}
+
+          {currentView === 'favorites' && (
+            <TrackListView
+              tracks={favoriteTracks}
+              totalTrackCount={favoriteTracks.length}
+              syncProgress={syncProgress}
+              currentTrack={currentTrack}
+              isPlaying={isPlaying}
+              onPlayTrack={handlePlayTrack}
+              onAddToQueue={handleAddToQueue}
+              onOpenMetadataEditor={(t: Track) => setEditingTrack(t)}
+              onToggleFavorite={handleToggleFavorite}
+              onContextMenuTrack={handleOpenTrackContextMenu}
+              onNavigateToAlbum={handleNavigateToAlbum}
+              onNavigateToArtist={handleNavigateToArtist}
+              onNavigateToAlbumArtist={handleNavigateToAlbumArtist}
+              onNavigateToGenre={handleNavigateToGenre}
+              onNavigateToDecade={handleNavigateToDecade}
               density={layoutConfig.trackListDensity}
               showTrackBitrate={layoutConfig.showTrackBitrate}
               layoutConfig={layoutConfig}
@@ -749,10 +1272,20 @@ export default function App() {
           {currentView === 'albums' && (
             <AlbumGridView
               albums={filteredAlbums}
+              totalAlbumCount={syncProgress?.totalAlbums}
+              allTracks={tracks}
               currentTrack={currentTrack}
               onPlayTrack={handlePlayTrack}
               onPlayAlbum={handlePlayAlbum}
-              onOpenMetadataEditor={(t) => setEditingTrack(t)}
+              onOpenMetadataEditor={(t: Track) => setEditingTrack(t)}
+              onContextMenuTrack={handleOpenTrackContextMenu}
+              onContextMenuAlbum={handleOpenAlbumContextMenu}
+              onNavigateToArtist={handleNavigateToArtist}
+              onNavigateToGenre={handleNavigateToGenre}
+              onNavigateToDecade={handleNavigateToDecade}
+              onReclassifyAlbum={handleReclassifyAlbum}
+              initialSelectedAlbum={initialSelectedAlbum}
+              onClearInitialAlbum={() => setInitialSelectedAlbum(null)}
               layoutConfig={layoutConfig}
               onUpdateLayout={handleUpdateLayout}
             />
@@ -760,11 +1293,65 @@ export default function App() {
 
           {currentView === 'artists' && (
             <ArtistListView
+              mode="artists"
               artists={filteredArtists}
-              onSelectArtist={(artist) => {
-                setSearchQuery(artist.name);
-                setCurrentView('tracks');
-              }}
+              totalArtistCount={syncProgress?.totalArtists}
+              albums={albums}
+              tracks={tracks}
+              currentTrack={currentTrack}
+              onPlayAlbum={handlePlayAlbum}
+              onPlayTrack={handlePlayTrack}
+              onContextMenuTrack={handleOpenTrackContextMenu}
+              onNavigateToAlbum={handleNavigateToAlbum}
+              onReclassifyAlbum={handleReclassifyAlbum}
+              initialSelectedArtistName={initialSelectedArtistName}
+              onClearInitialArtist={() => setInitialSelectedArtistName(null)}
+              layoutConfig={layoutConfig}
+              onUpdateLayout={handleUpdateLayout}
+            />
+          )}
+
+          {currentView === 'album-artists' && (
+            <ArtistListView
+              mode="album-artists"
+              artists={filteredAlbumArtists}
+              totalArtistCount={albumArtists.length}
+              albums={albums}
+              tracks={tracks}
+              currentTrack={currentTrack}
+              onPlayAlbum={handlePlayAlbum}
+              onPlayTrack={handlePlayTrack}
+              onContextMenuTrack={handleOpenTrackContextMenu}
+              onNavigateToAlbum={handleNavigateToAlbum}
+              onReclassifyAlbum={handleReclassifyAlbum}
+              initialSelectedArtistName={initialSelectedArtistName}
+              onClearInitialArtist={() => setInitialSelectedArtistName(null)}
+              layoutConfig={layoutConfig}
+              onUpdateLayout={handleUpdateLayout}
+            />
+          )}
+
+          {currentView === 'genres' && (
+            <GenreDecadeView
+              mode="genres"
+              tracks={filteredTracks}
+              albums={filteredAlbums}
+              currentTrack={currentTrack}
+              onPlayTrack={handlePlayTrack}
+              onPlayAlbum={handlePlayAlbum}
+              onPlayQueue={handlePlayQueueList}
+            />
+          )}
+
+          {currentView === 'decades' && (
+            <GenreDecadeView
+              mode="decades"
+              tracks={filteredTracks}
+              albums={filteredAlbums}
+              currentTrack={currentTrack}
+              onPlayTrack={handlePlayTrack}
+              onPlayAlbum={handlePlayAlbum}
+              onPlayQueue={handlePlayQueueList}
             />
           )}
 
@@ -818,7 +1405,10 @@ export default function App() {
           {currentView === 'art-search' && (
             <div className="p-6">
               <button
-                onClick={() => setIsCoverArtFinderOpen(true)}
+                onClick={() => {
+                  setCoverArtSearchState(null);
+                  setIsCoverArtFinderOpen(true);
+                }}
                 className="px-4 py-2 rounded-xl bg-pink-600 text-white font-bold text-xs"
               >
                 Open High-Resolution Album Art Finder
@@ -850,7 +1440,13 @@ export default function App() {
           onClose={() => setIsLyricsOpen(false)}
           currentTrack={currentTrack}
           currentTime={currentTime}
+          isPlaying={isPlaying}
           onSeek={handleSeek}
+          onOpenMetadataEditor={(t) => setEditingTrack(t)}
+          onNavigateToArtist={handleNavigateToArtist}
+          onNavigateToAlbum={handleNavigateToAlbum}
+          widthPx={layoutConfig.drawerWidthPx}
+          onResizeWidth={(w) => handleUpdateLayout({ drawerWidthPx: w })}
         />
 
         <QueueDrawer
@@ -863,6 +1459,8 @@ export default function App() {
             setQueue((prev) => prev.filter((_, i) => i !== idx));
           }}
           onClearQueue={() => setQueue([])}
+          widthPx={layoutConfig.drawerWidthPx}
+          onResizeWidth={(w) => handleUpdateLayout({ drawerWidthPx: w })}
         />
       </div>
 
@@ -893,7 +1491,122 @@ export default function App() {
       {/* 3. Bottom or Floating Desktop Player Dock */}
       {!isPlayerSidebar && layoutConfig.playerBarPosition !== 'top' && renderPlayerBar()}
 
-      {/* 4. Fullscreen & Modal Overlays */}
+      {/* 4. Right-Click Track Context Menu */}
+      <TrackContextMenu
+        track={contextMenuState?.track || null}
+        position={contextMenuState?.position || null}
+        onClose={() => setContextMenuState(null)}
+        onPlayNow={(t) => handlePlayTrack(t)}
+        onPlayNext={handlePlayNext}
+        onAddToQueue={handleAddToQueue}
+        onToggleFavorite={handleToggleFavorite}
+        onGoToAlbum={handleNavigateToAlbum}
+        onGoToArtist={handleNavigateToArtist}
+        onGoToAlbumArtist={handleNavigateToAlbumArtist}
+        onSearchAlbumArtwork={(t) => {
+          setCoverArtSearchState({
+            query: `${t.artist} ${t.album}`.trim(),
+            mode: 'album',
+            label: `${t.album} — ${t.artist}`,
+            targetTrack: t,
+          });
+          setIsCoverArtFinderOpen(true);
+        }}
+        onSearchArtistArtwork={(t) => {
+          setCoverArtSearchState({
+            query: t.artist,
+            mode: 'artist',
+            label: t.artist,
+            targetTrack: t,
+            targetArtistName: t.artist,
+          });
+          setIsCoverArtFinderOpen(true);
+        }}
+        onOpenMetadataEditor={(t) => setEditingTrack(t)}
+      />
+
+      {/* 4b. Right-Click Album Context Menu (One-Click Category Organization) */}
+      <AlbumContextMenu
+        album={albumContextMenuState?.album || null}
+        position={albumContextMenuState?.position || null}
+        onClose={() => setAlbumContextMenuState(null)}
+        onPlayAlbum={handlePlayAlbum}
+        onAddToQueue={(alb) => {
+          const albTracks =
+            alb.tracks && alb.tracks.length > 0
+              ? alb.tracks
+              : tracks.filter(
+                  (t) =>
+                    t.albumId === alb.id ||
+                    t.album.toLowerCase() === alb.title.toLowerCase()
+                );
+          setQueue((prev) => [...prev, ...albTracks]);
+        }}
+        onGoToArtist={handleNavigateToArtist}
+        onReclassifyAlbum={(albumId, type) => {
+          handleReclassifyAlbum(
+            albumId,
+            type,
+            albumContextMenuState?.album.title,
+            albumContextMenuState?.album.artist
+          );
+        }}
+        onSearchArtwork={(alb) => {
+          setCoverArtSearchState({
+            query: `${alb.artist} ${alb.title}`.trim(),
+            mode: 'album',
+            label: `${alb.title} — ${alb.artist}`,
+          });
+          setIsCoverArtFinderOpen(true);
+        }}
+      />
+
+      {/* 5. Fullscreen Dedicated Track Player & Modal Overlays */}
+      <NowPlayingModal
+        isOpen={isDedicatedPlayerOpen}
+        onClose={() => setIsDedicatedPlayerOpen(false)}
+        currentTrack={currentTrack}
+        queue={queue}
+        isPlaying={isPlaying}
+        currentTime={currentTime}
+        duration={duration}
+        isShuffle={isShuffle}
+        repeatMode={repeatMode}
+        volume={volume}
+        isMuted={isMuted}
+        metrics={metrics}
+        layoutConfig={layoutConfig}
+        onUpdateLayout={handleUpdateLayout}
+        onTogglePlay={handleTogglePlay}
+        onPrev={handlePrevTrack}
+        onNext={handleNextTrack}
+        onSeek={handleSeek}
+        onToggleShuffle={handleToggleShuffle}
+        onToggleRepeat={handleToggleRepeat}
+        onVolumeChange={handleVolumeChange}
+        onToggleMute={handleToggleMute}
+        onPlayTrack={handlePlayTrack}
+        onToggleFavorite={handleToggleFavorite}
+        onOpenDspModal={() => setIsDspModalOpen(true)}
+        onOpenVisualizer={() => setIsVisualizerOpen(true)}
+        onOpenMetadataEditor={(t) => setEditingTrack(t)}
+        onOpenCoverArtSearch={() => {
+          setCoverArtSearchState(
+            currentTrack
+              ? {
+                  query: `${currentTrack.artist} ${currentTrack.album}`,
+                  mode: 'album',
+                  label: `${currentTrack.album} — ${currentTrack.artist}`,
+                  targetTrack: currentTrack,
+                }
+              : null
+          );
+          setIsCoverArtFinderOpen(true);
+        }}
+        onNavigateToArtist={handleNavigateToArtist}
+        onNavigateToAlbum={handleNavigateToAlbum}
+      />
+
       <SettingsModal
         isOpen={isSettingsModalOpen}
         onClose={() => setIsSettingsModalOpen(false)}
@@ -947,10 +1660,26 @@ export default function App() {
       <CoverArtSearchModal
         isOpen={isCoverArtFinderOpen}
         onClose={() => setIsCoverArtFinderOpen(false)}
-        defaultQuery={currentTrack ? `${currentTrack.artist} ${currentTrack.album}` : ''}
+        defaultQuery={
+          coverArtSearchState?.query ||
+          (currentTrack ? `${currentTrack.artist} ${currentTrack.album}` : '')
+        }
+        initialMode={coverArtSearchState?.mode || 'all'}
+        targetLabel={
+          coverArtSearchState?.label ||
+          (currentTrack ? `${currentTrack.album} — ${currentTrack.artist}` : undefined)
+        }
         onSelectArt={(artUrl) => {
-          if (currentTrack) {
-            handleUpdateTrack({ ...currentTrack, coverUrl: artUrl });
+          const targetArtist = coverArtSearchState?.targetArtistName;
+          const targetTrack = coverArtSearchState?.targetTrack || currentTrack;
+
+          if (coverArtSearchState?.mode === 'artist' && targetArtist) {
+            const key = targetArtist.trim().toLowerCase();
+            setArtists((prev) =>
+              prev.map((a) => (a.name.trim().toLowerCase() === key ? { ...a, coverUrl: artUrl } : a))
+            );
+          } else if (targetTrack) {
+            handleUpdateTrack({ ...targetTrack, coverUrl: artUrl });
           }
         }}
       />
@@ -973,6 +1702,11 @@ export default function App() {
         onTogglePlay={handleTogglePlay}
         onPrev={handlePrevTrack}
         onNext={handleNextTrack}
+        onSeek={handleSeek}
+        onVolumeChange={handleVolumeChange}
+        onToggleMute={handleToggleMute}
+        isMuted={isMuted}
+        volume={volume}
       />
     </div>
   );

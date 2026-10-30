@@ -1,8 +1,12 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   Music,
   Disc,
   Users,
+  UserCheck,
+  Tag,
+  Calendar,
+  Heart,
   Sparkles,
   SlidersHorizontal,
   Activity,
@@ -13,21 +17,34 @@ import {
   LucideIcon,
   GripVertical,
   GripHorizontal,
-  ArrowUp,
   ArrowLeft,
   ArrowRight,
-  ArrowDown,
   Settings,
   PanelTop,
   PanelLeft,
   PanelRight,
+  Eye,
+  Home,
+  Check,
 } from 'lucide-react';
-import { Track, NavPosition, DraggableSectionId } from '../types/index.ts';
+import {
+  Track,
+  NavPosition,
+  DraggableSectionId,
+  VisibleSidebarItems,
+} from '../types/index.ts';
+import { DEFAULT_LAYOUT_CONFIG } from '../services/layoutEngine.ts';
+import { resolveCoverArt, handleCoverImgError } from '../utils/jellywispArtwork.ts';
 
 export type NavView =
+  | 'home'
   | 'tracks'
   | 'albums'
+  | 'album-artists'
   | 'artists'
+  | 'genres'
+  | 'decades'
+  | 'favorites'
   | 'smart-playlists'
   | 'dsp'
   | 'specs'
@@ -56,15 +73,25 @@ interface SidebarProps {
   trackCount: number;
   albumCount: number;
   artistCount: number;
+  albumArtistCount?: number;
+  genreCount?: number;
+  decadeCount?: number;
+  favoriteCount?: number;
   currentTrack: Track | null;
   onOpenMetadataEditor: (track: Track) => void;
+  onOpenDedicatedPlayer?: () => void;
   sidebarWidth?: number;
   topTabsHeightPx?: number;
   navItemScale?: number;
   position?: NavPosition;
   uppercaseHeaders?: boolean;
+  visibleSidebarItems?: VisibleSidebarItems;
+  showSidebarQuickCard?: boolean;
   isLayoutEditMode?: boolean;
   onMoveNavPosition?: (pos: NavPosition) => void;
+  onResizeSidebarWidth?: (widthPx: number) => void;
+  onResizeTopTabsHeight?: (heightPx: number) => void;
+  onToggleSidebarItem?: (itemId: keyof VisibleSidebarItems) => void;
   onDragStartSection?: (section: DraggableSectionId) => void;
   onDragEndSection?: () => void;
   onOpenSettingsModal?: () => void;
@@ -76,30 +103,76 @@ export const Sidebar: React.FC<SidebarProps> = ({
   trackCount,
   albumCount,
   artistCount,
+  albumArtistCount,
+  genreCount,
+  decadeCount,
+  favoriteCount,
   currentTrack,
   onOpenMetadataEditor,
-  sidebarWidth = 230,
+  onOpenDedicatedPlayer,
+  sidebarWidth = 235,
   topTabsHeightPx = 50,
   navItemScale = 100,
   position = 'left',
   uppercaseHeaders = true,
+  visibleSidebarItems,
+  showSidebarQuickCard = true,
   isLayoutEditMode = false,
   onMoveNavPosition,
+  onResizeSidebarWidth,
+  onResizeTopTabsHeight,
+  onToggleSidebarItem,
   onDragStartSection,
   onDragEndSection,
   onOpenSettingsModal,
 }) => {
-  const navItems: NavGroup[] = [
+  const [showCustomizeMenu, setShowCustomizeMenu] = useState(false);
+  const [isResizing, setIsResizing] = useState(false);
+
+  const vis: VisibleSidebarItems = {
+    ...DEFAULT_LAYOUT_CONFIG.visibleSidebarItems,
+    ...(visibleSidebarItems || {}),
+  };
+
+  const allNavGroups: NavGroup[] = [
+    {
+      group: 'Discover',
+      items: [
+        { id: 'home', label: 'Home Dashboard', shortLabel: 'Home', icon: Home },
+      ],
+    },
     {
       group: 'Library',
       items: [
         { id: 'tracks', label: 'All Tracks', shortLabel: 'Tracks', icon: Music, badge: trackCount },
         { id: 'albums', label: 'Albums', shortLabel: 'Albums', icon: Disc, badge: albumCount },
+        {
+          id: 'album-artists',
+          label: 'Album Artists',
+          shortLabel: 'Album Artists',
+          icon: UserCheck,
+          badge: albumArtistCount,
+        },
         { id: 'artists', label: 'Artists', shortLabel: 'Artists', icon: Users, badge: artistCount },
+        { id: 'genres', label: 'Genres', shortLabel: 'Genres', icon: Tag, badge: genreCount },
+        {
+          id: 'decades',
+          label: 'Decades & Era',
+          shortLabel: 'Decades',
+          icon: Calendar,
+          badge: decadeCount,
+        },
+        {
+          id: 'favorites',
+          label: 'Favorites',
+          shortLabel: 'Favorites',
+          icon: Heart,
+          badge: favoriteCount,
+        },
       ],
     },
     {
-      group: 'Discovery & ML',
+      group: 'Discovery',
       items: [
         {
           id: 'smart-playlists',
@@ -111,51 +184,120 @@ export const Sidebar: React.FC<SidebarProps> = ({
       ],
     },
     {
-      group: 'Hi-Fi Audio',
+      group: 'Audio & Tools',
       items: [
         { id: 'dsp', label: '10-Band EQ & DSP', shortLabel: 'EQ & DSP', icon: SlidersHorizontal },
         { id: 'specs', label: 'Performance Metrics', shortLabel: 'Telemetry', icon: Activity },
-      ],
-    },
-    {
-      group: 'Customize',
-      items: [
         { id: 'themes', label: 'Themes & Live CSS', shortLabel: 'Themes', icon: Palette },
         { id: 'hotkeys', label: 'Hotkey Manager', shortLabel: 'Hotkeys', icon: Keyboard },
         { id: 'art-search', label: 'Cover Art Search', shortLabel: 'Cover Art', icon: Image },
-      ],
-    },
-    {
-      group: 'Server',
-      items: [
-        { id: 'jellyfin-config', label: 'Jellyfin Sync', shortLabel: 'Server', icon: Server },
+        { id: 'jellyfin-config', label: 'Jellyfin Server', shortLabel: 'Server', icon: Server },
       ],
     },
   ];
 
+  // Filter visible groups
+  const visibleGroups = allNavGroups
+    .map((g) => ({
+      ...g,
+      items: g.items.filter((item) => vis[item.id] !== false),
+    }))
+    .filter((g) => g.items.length > 0);
+
   const handleDragStart = (e: React.DragEvent) => {
+    if (isResizing) {
+      e.preventDefault();
+      return;
+    }
     e.dataTransfer.setData('text/plain', 'navigation');
     e.dataTransfer.effectAllowed = 'move';
     onDragStartSection?.('navigation');
   };
 
+  // Real-time Mouse Edge Drag Resizing for Vertical Sidebar (Windows-style)
+  const startVerticalResize = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!onResizeSidebarWidth) return;
+
+    setIsResizing(true);
+    const startX = e.clientX;
+    const startWidth = sidebarWidth;
+
+    const onMouseMove = (moveEvent: MouseEvent) => {
+      const deltaX =
+        position === 'right' ? startX - moveEvent.clientX : moveEvent.clientX - startX;
+      const nextWidth = Math.max(140, Math.min(520, startWidth + deltaX));
+      onResizeSidebarWidth(nextWidth);
+    };
+
+    const onMouseUp = () => {
+      setIsResizing(false);
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+      document.body.style.cursor = '';
+    };
+
+    document.body.style.cursor = 'col-resize';
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+  };
+
+  // Real-time Mouse Edge Drag Resizing for Horizontal Top/Bottom Tabs Bar
+  const startHorizontalResize = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!onResizeTopTabsHeight) return;
+
+    setIsResizing(true);
+    const startY = e.clientY;
+    const startHeight = topTabsHeightPx;
+
+    const onMouseMove = (moveEvent: MouseEvent) => {
+      const deltaY =
+        position === 'bottom' ? startY - moveEvent.clientY : moveEvent.clientY - startY;
+      const nextHeight = Math.max(36, Math.min(96, startHeight + deltaY));
+      onResizeTopTabsHeight(nextHeight);
+    };
+
+    const onMouseUp = () => {
+      setIsResizing(false);
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+      document.body.style.cursor = '';
+    };
+
+    document.body.style.cursor = 'row-resize';
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+  };
+
   // HORIZONTAL TOP TABS OR BOTTOM RIBBON MODE
   if (position === 'top' || position === 'bottom') {
-    const allItems = navItems.flatMap((g) => g.items);
+    const allItems = visibleGroups.flatMap((g) => g.items);
     return (
       <nav
-        draggable
+        draggable={!isResizing}
         onDragStart={handleDragStart}
         onDragEnd={() => onDragEndSection?.()}
         style={{
-          minHeight: `${topTabsHeightPx}px`,
+          height: `${topTabsHeightPx}px`,
           fontSize: `${navItemScale}%`,
         }}
         aria-label="Main navigation tabs"
-        className={`w-full bg-[var(--fin-sidebar)] px-4 py-1.5 flex items-center justify-between gap-2 shrink-0 select-none backdrop-blur-[var(--fin-blur)] z-20 finamp-sidebar transition-all ${
+        className={`w-full bg-[var(--fin-sidebar)] px-4 flex items-center justify-between gap-2 shrink-0 select-none backdrop-blur-[var(--fin-blur)] z-20 finamp-sidebar relative ${
           position === 'top' ? 'border-b border-white/10' : 'border-t border-white/10'
         } ${isLayoutEditMode ? 'ring-2 ring-cyan-400/60 bg-cyan-950/20' : ''}`}
       >
+        {/* Real-time Edge Resize Handle for Top/Bottom Bar */}
+        <div
+          onMouseDown={startHorizontalResize}
+          title="Drag edge to resize bar height"
+          className={`absolute left-0 right-0 h-2 z-40 cursor-row-resize hover:bg-cyan-400/60 transition-colors ${
+            position === 'top' ? 'bottom-0' : 'top-0'
+          } ${isResizing ? 'bg-cyan-400' : ''}`}
+        />
+
         {/* Left Drag Grip & Quick Dock Switcher */}
         <div className="flex items-center gap-2 shrink-0">
           <div
@@ -164,7 +306,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           >
             <GripHorizontal className="w-3.5 h-3.5 text-cyan-400" />
             <span className="text-[10px] font-mono font-bold uppercase tracking-wider hidden xl:inline">
-              Nav Tabs
+              Nav
             </span>
           </div>
 
@@ -205,13 +347,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
               >
                 <Icon className="w-3.5 h-3.5 shrink-0" />
                 <span>{item.label}</span>
-                {item.badge !== undefined && (
+                {item.badge !== undefined && item.badge > 0 && (
                   <span
                     className={`text-[10px] font-mono px-1.5 py-0.2 rounded-full ${
                       isActive ? 'bg-black/20 text-slate-950 font-bold' : 'bg-white/10 text-slate-400'
                     }`}
                   >
-                    {item.badge}
+                    {item.badge.toLocaleString()}
                   </span>
                 )}
               </button>
@@ -219,14 +361,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
           })}
         </div>
 
-        {/* Right: All Settings Button in Top Tab Bar */}
+        {/* Right: Settings Button */}
         {onOpenSettingsModal && (
           <button
             onClick={onOpenSettingsModal}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-cyan-300 bg-cyan-950/50 hover:bg-cyan-900/60 border border-cyan-500/30 shrink-0 transition"
           >
             <Settings className="w-3.5 h-3.5" />
-            <span className="hidden md:inline">Customize</span>
+            <span className="hidden md:inline">Settings</span>
           </button>
         )}
       </nav>
@@ -239,54 +381,126 @@ export const Sidebar: React.FC<SidebarProps> = ({
   // VERTICAL LEFT OR RIGHT SIDEBAR MODE
   return (
     <aside
-      draggable
+      draggable={!isResizing}
       onDragStart={handleDragStart}
       onDragEnd={() => onDragEndSection?.()}
       style={{ width: isCompact ? '68px' : `${sidebarWidth}px` }}
       className={`bg-[var(--fin-sidebar)] ${
         position === 'right' ? 'border-l' : 'border-r'
-      } border-white/5 flex flex-col justify-between shrink-0 select-none backdrop-blur-[var(--fin-blur)] z-20 finamp-sidebar overflow-y-auto transition-all duration-150 ${
+      } border-white/5 flex flex-col justify-between shrink-0 select-none backdrop-blur-[var(--fin-blur)] z-20 finamp-sidebar relative ${
         isLayoutEditMode ? 'ring-2 ring-cyan-400/60' : ''
       }`}
     >
-      <div className="p-3 space-y-4">
-        {/* Draggable Section Header / Quick Dock Bar */}
-        <div className="flex items-center justify-between px-1.5 py-1 rounded-lg bg-white/[0.03] border border-white/5 group">
+      {/* Real-time Windows-style Edge Drag Resize Handle */}
+      {!isCompact && (
+        <div
+          onMouseDown={startVerticalResize}
+          title="Drag edge left or right to resize sidebar width"
+          className={`absolute top-0 bottom-0 w-2 z-40 cursor-col-resize hover:bg-cyan-400/60 transition-colors group ${
+            position === 'right' ? 'left-0 -ml-1' : 'right-0 -mr-1'
+          } ${isResizing ? 'bg-cyan-400' : ''}`}
+        >
+          {isResizing && (
+            <span className="absolute top-1/2 -translate-y-1/2 left-3 px-2 py-0.5 rounded bg-cyan-500 text-slate-950 font-mono font-bold text-[10px] shadow-lg whitespace-nowrap">
+              {Math.round(sidebarWidth)}px
+            </span>
+          )}
+        </div>
+      )}
+
+      <div className="p-3 space-y-4 overflow-y-auto flex-1">
+        {/* Draggable Section Header / Quick Dock Bar + Show/Hide Sidebar Items Popover */}
+        <div className="flex items-center justify-between px-1.5 py-1 rounded-lg bg-white/[0.03] border border-white/5 group relative">
           <div
             className="flex items-center gap-1.5 text-[10px] font-mono text-slate-400 group-hover:text-cyan-300 cursor-grab active:cursor-grabbing"
             title="Drag this Sidebar to the Top Zone to turn it into Top Tabs, or to the Right!"
           >
             <GripVertical className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
-            {!isCompact && <span className="font-bold uppercase tracking-wider">Navigation</span>}
+            {!isCompact && <span className="font-bold uppercase tracking-wider">Library Nav</span>}
           </div>
 
-          {!isCompact && onMoveNavPosition && (
+          {!isCompact && (
             <div className="flex items-center gap-0.5">
-              <button
-                onClick={() => onMoveNavPosition('top')}
-                className="p-1 rounded hover:bg-cyan-500/20 text-slate-400 hover:text-cyan-300 transition"
-                title="Push Sidebar into Top Horizontal Tabs"
-                aria-label="Push sidebar to top tabs"
-              >
-                <PanelTop className="w-3 h-3" />
-              </button>
-              <button
-                onClick={() => onMoveNavPosition(position === 'left' ? 'right' : 'left')}
-                className="p-1 rounded hover:bg-cyan-500/20 text-slate-400 hover:text-cyan-300 transition"
-                title={position === 'left' ? 'Move Sidebar to Right' : 'Move Sidebar to Left'}
-                aria-label="Flip sidebar side"
-              >
-                {position === 'left' ? (
-                  <ArrowRight className="w-3 h-3" />
-                ) : (
-                  <ArrowLeft className="w-3 h-3" />
-                )}
-              </button>
+              {onToggleSidebarItem && (
+                <button
+                  onClick={() => setShowCustomizeMenu((v) => !v)}
+                  className={`p-1 rounded transition ${
+                    showCustomizeMenu
+                      ? 'bg-cyan-500 text-slate-950'
+                      : 'hover:bg-cyan-500/20 text-slate-400 hover:text-cyan-300'
+                  }`}
+                  title="Show or Hide Sidebar Navigation Items"
+                >
+                  <Eye className="w-3 h-3" />
+                </button>
+              )}
+              {onMoveNavPosition && (
+                <>
+                  <button
+                    onClick={() => onMoveNavPosition('top')}
+                    className="p-1 rounded hover:bg-cyan-500/20 text-slate-400 hover:text-cyan-300 transition"
+                    title="Push Sidebar into Top Horizontal Tabs"
+                    aria-label="Push sidebar to top tabs"
+                  >
+                    <PanelTop className="w-3 h-3" />
+                  </button>
+                  <button
+                    onClick={() => onMoveNavPosition(position === 'left' ? 'right' : 'left')}
+                    className="p-1 rounded hover:bg-cyan-500/20 text-slate-400 hover:text-cyan-300 transition"
+                    title={position === 'left' ? 'Move Sidebar to Right' : 'Move Sidebar to Left'}
+                    aria-label="Flip sidebar side"
+                  >
+                    {position === 'left' ? (
+                      <ArrowRight className="w-3 h-3" />
+                    ) : (
+                      <ArrowLeft className="w-3 h-3" />
+                    )}
+                  </button>
+                </>
+              )}
             </div>
           )}
         </div>
 
-        {navItems.map((group) => (
+        {/* Inline Sidebar Items Show/Hide Customizer */}
+        {showCustomizeMenu && !isCompact && onToggleSidebarItem && (
+          <div className="p-3 rounded-xl bg-[#0b101e] border border-cyan-500/40 space-y-2 shadow-xl">
+            <div className="flex items-center justify-between pb-1.5 border-b border-white/10">
+              <span className="text-[10px] font-mono uppercase tracking-wider text-cyan-400 font-bold">
+                Show / Hide Sidebar Items
+              </span>
+              <button
+                onClick={() => setShowCustomizeMenu(false)}
+                className="text-[10px] text-slate-400 hover:text-white"
+              >
+                Done
+              </button>
+            </div>
+            <div className="space-y-1 max-h-60 overflow-y-auto pr-1">
+              {allNavGroups
+                .flatMap((g) => g.items)
+                .map((item) => {
+                  const enabled = vis[item.id] !== false;
+                  return (
+                    <button
+                      key={item.id}
+                      onClick={() => onToggleSidebarItem(item.id)}
+                      className={`w-full flex items-center justify-between px-2 py-1.5 rounded-lg text-[11px] transition ${
+                        enabled
+                          ? 'bg-cyan-500/15 text-white font-semibold'
+                          : 'text-slate-500 hover:text-slate-300 hover:bg-white/5'
+                      }`}
+                    >
+                      <span>{item.label}</span>
+                      {enabled && <Check className="w-3 h-3 text-cyan-400" />}
+                    </button>
+                  );
+                })}
+            </div>
+          </div>
+        )}
+
+        {visibleGroups.map((group) => (
           <div key={group.group}>
             {!isCompact && (
               <div
@@ -306,6 +520,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     key={item.id}
                     onClick={() => onSelectView(item.id)}
                     title={isCompact ? item.label : undefined}
+                    style={{ fontSize: `${navItemScale}%` }}
                     className={`w-full flex items-center ${
                       isCompact ? 'justify-center py-2.5' : 'justify-between px-2.5 py-2'
                     } rounded-lg text-xs font-medium transition ${
@@ -326,9 +541,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       />
                       {!isCompact && <span className="truncate">{item.label}</span>}
                     </div>
-                    {!isCompact && item.badge !== undefined && (
-                      <span className="text-[10px] font-mono text-slate-500 bg-white/5 px-1.5 py-0.5 rounded">
-                        {item.badge}
+                    {!isCompact && item.badge !== undefined && item.badge > 0 && (
+                      <span className="text-[10px] font-mono text-slate-500 bg-white/5 px-1.5 py-0.5 rounded tabular-nums">
+                        {item.badge.toLocaleString()}
                       </span>
                     )}
                     {!isCompact && item.glow && (
@@ -341,7 +556,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
         ))}
 
-        {/* Dedicated All Settings Button */}
+        {/* Dedicated Settings & Customization Button */}
         {onOpenSettingsModal && (
           <div className="pt-2">
             <button
@@ -349,31 +564,34 @@ export const Sidebar: React.FC<SidebarProps> = ({
               className={`w-full flex items-center ${
                 isCompact ? 'justify-center py-2.5' : 'gap-2.5 px-3 py-2'
               } rounded-xl text-xs font-semibold text-slate-200 hover:text-white bg-gradient-to-r from-cyan-500/15 to-indigo-500/15 hover:from-cyan-500/25 hover:to-indigo-500/25 border border-cyan-500/30 transition shadow-sm`}
-              title="Open All Settings & Customization"
+              title="Open Settings & Live Customization"
             >
               <Settings className="w-4 h-4 text-cyan-400 shrink-0" />
-              {!isCompact && <span>All Settings</span>}
+              {!isCompact && <span>Settings & Customize</span>}
             </button>
           </div>
         )}
       </div>
 
       {/* Mini Current Track Artwork / Info at Sidebar Base */}
-      {currentTrack && !isCompact && (
-        <div className="p-3 border-t border-white/5 bg-black/20 m-2 rounded-xl backdrop-blur-sm">
-          <div className="flex items-center gap-2.5">
+      {currentTrack && !isCompact && showSidebarQuickCard !== false && (
+        <div className="p-3 border-t border-white/5 bg-black/25 m-2 rounded-xl backdrop-blur-sm shrink-0">
+          <div
+            onClick={() => onOpenDedicatedPlayer?.()}
+            className="flex items-center gap-2.5 cursor-pointer group"
+            title="Click to open Dedicated Track Player"
+          >
             <img
-              src={currentTrack.coverUrl}
+              src={resolveCoverArt(currentTrack.coverUrl)}
+              onError={handleCoverImgError}
               alt={currentTrack.title}
-              className="w-10 h-10 rounded-lg object-cover shadow-md border border-white/10 shrink-0 cursor-pointer hover:opacity-80 transition"
-              onClick={() => onOpenMetadataEditor(currentTrack)}
-              title="Click to view/edit metadata"
+              className="w-10 h-10 rounded-lg object-cover shadow-md border border-white/10 shrink-0 group-hover:scale-105 transition"
             />
             <div className="min-w-0 flex-1">
-              <p className="text-xs font-semibold text-slate-200 truncate">
+              <p className="text-xs font-semibold jw-text-track group-hover:text-[var(--fin-accent)] truncate transition">
                 {currentTrack.title}
               </p>
-              <p className="text-[11px] text-slate-400 truncate">
+              <p className="text-[11px] jw-text-artist truncate">
                 {currentTrack.artist}
               </p>
             </div>

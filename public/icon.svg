@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <radialGradient id="bgGrad" cx="50%" cy="38%" r="65%">
+      <stop offset="0%" stop-color="#13203d" />
+      <stop offset="55%" stop-color="#090e1c" />
+      <stop offset="100%" stop-color="#05070f" />
+    </radialGradient>
+    <linearGradient id="domeGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#22d3ee" />
+      <stop offset="50%" stop-color="#38bdf8" />
+      <stop offset="100%" stop-color="#6366f1" />
+    </linearGradient>
+    <linearGradient id="tentacleGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#22d3ee" stop-opacity="0.95" />
+      <stop offset="60%" stop-color="#6366f1" stop-opacity="0.75" />
+      <stop offset="100%" stop-color="#a855f7" stop-opacity="0.15" />
+    </linearGradient>
+    <filter id="glow" x="-25%" y="-25%" width="150%" height="150%">
+      <feGaussianBlur stdDeviation="14" result="blur" />
+      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+    </filter>
+  </defs>
+
+  <!-- Background Rounded Tile -->
+  <rect width="512" height="512" rx="96" fill="url(#bgGrad)" />
+
+  <!-- Subtle Vinyl / Acoustic Rings -->
+  <circle cx="256" cy="256" r="210" fill="none" stroke="#22d3ee" stroke-opacity="0.06" stroke-width="1.5" />
+  <circle cx="256" cy="256" r="175" fill="none" stroke="#38bdf8" stroke-opacity="0.08" stroke-width="1.5" />
+  <circle cx="256" cy="256" r="140" fill="none" stroke="#6366f1" stroke-opacity="0.1" stroke-width="1.5" />
+
+  <!-- Glowing JellyWisp Bell / Dome -->
+  <g filter="url(#glow)">
+    <path
+      d="M136 228 C136 144, 376 144, 376 228 C376 250, 348 260, 326 252 C302 244, 280 258, 256 258 C232 258, 210 244, 186 252 C164 260, 136 250, 136 228 Z"
+      fill="url(#domeGrad)"
+      fill-opacity="0.9"
+    />
+    <!-- Inner Bell Highlight -->
+    <path
+      d="M166 216 C166 162, 346 162, 346 216 C316 202, 196 202, 166 216 Z"
+      fill="#e0f2fe"
+      fill-opacity="0.45"
+    />
+  </g>
+
+  <!-- Soundwave Tentacles -->
+  <g fill="none" stroke="url(#tentacleGrad)" stroke-linecap="round">
+    <path d="M178 262 C162 310, 196 355, 174 408" stroke-width="10" />
+    <path d="M216 266 C202 322, 234 368, 214 428" stroke-width="12" />
+    <path d="M256 268 C256 326, 256 376, 256 438" stroke-width="13" />
+    <path d="M296 266 C310 322, 278 368, 298 428" stroke-width="12" />
+    <path d="M334 262 C350 310, 316 355, 338 408" stroke-width="10" />
+  </g>
+
+  <!-- Bioluminescent Audio Nodes -->
+  <circle cx="195" cy="122" r="5" fill="#22d3ee" fill-opacity="0.7" />
+  <circle cx="325" cy="118" r="4" fill="#818cf8" fill-opacity="0.7" />
+  <circle cx="132" cy="176" r="3.5" fill="#38bdf8" fill-opacity="0.5" />
+  <circle cx="382" cy="182" r="4.5" fill="#22d3ee" fill-opacity="0.6" />
+</svg>

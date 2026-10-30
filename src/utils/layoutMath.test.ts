@@ -15,6 +15,11 @@ test('layoutMath: getFontFamilyCss maps family choices correctly', () => {
   assert.ok(getFontFamilyCss('mono').includes('JetBrains Mono'));
   assert.ok(getFontFamilyCss('space').includes('Space Grotesk'));
   assert.ok(getFontFamilyCss('serif').includes('Playfair Display'));
+  assert.ok(getFontFamilyCss('outfit').includes('Outfit'));
+  assert.ok(getFontFamilyCss('syne').includes('Syne'));
+  assert.ok(getFontFamilyCss('cinzel').includes('Cinzel'));
+  assert.ok(getFontFamilyCss('firacode').includes('Fira Code'));
+  assert.ok(getFontFamilyCss('custom', 'Montserrat').includes('Montserrat'));
   assert.ok(getFontFamilyCss('system').includes('system-ui'));
 });
 

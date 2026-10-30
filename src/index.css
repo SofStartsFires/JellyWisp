@@ -1,1 +1,127 @@
 @import "tailwindcss";
+
+:root {
+  --fin-accent: #06b6d4;
+  --fin-bg: #07090e;
+  --fin-surface: #0e131f;
+  --fin-titlebar: #080b14;
+  --fin-sidebar: #0a0e18;
+  --fin-player: #0b101c;
+  --fin-card: #121829;
+  --fin-text-primary: #f8fafc;
+  --fin-text-secondary: #94a3b8;
+  --fin-text-track: #f8fafc;
+  --fin-text-artist: #94a3b8;
+  --fin-text-album: #cbd5e1;
+  --fin-border: rgba(6, 182, 212, 0.25);
+  --fin-blur: 16px;
+  --jw-font-sans: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+  --jw-font-heading: 'Space Grotesk', system-ui, sans-serif;
+  --jw-font-mono: 'JetBrains Mono', monospace;
+}
+
+body, input, button, select, textarea {
+  font-family: var(--jw-font-sans);
+}
+
+.font-sans {
+  font-family: var(--jw-font-sans) !important;
+}
+
+.font-mono {
+  font-family: var(--jw-font-mono) !important;
+}
+
+.font-heading {
+  font-family: var(--jw-font-heading) !important;
+}
+
+/* Modern Sleek Audiophile Scrollbars */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--fin-accent) 42%, rgba(255, 255, 255, 0.14)) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+*::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.16);
+  border-radius: 9999px;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--fin-accent) 40%, rgba(148, 163, 184, 0.25));
+  border-radius: 9999px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  transition: background-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--fin-accent);
+  box-shadow: 0 0 10px var(--fin-accent);
+}
+
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* Dedicated Customizable Typography Color Classes */
+.jw-text-track {
+  color: var(--fin-text-track, var(--fin-text-primary, #f8fafc));
+}
+
+.jw-text-artist {
+  color: var(--fin-text-artist, var(--fin-text-secondary, #94a3b8));
+}
+
+.jw-text-album {
+  color: var(--fin-text-album, #cbd5e1);
+}
+
+.jw-text-primary {
+  color: var(--fin-text-primary, #f8fafc);
+}
+
+.jw-text-secondary {
+  color: var(--fin-text-secondary, #94a3b8);
+}
+
+/* Outer Chrome / Dock Theme Surfaces */
+.finamp-titlebar {
+  background-color: color-mix(in srgb, var(--fin-titlebar, var(--fin-sidebar)) 92%, transparent);
+  backdrop-filter: blur(var(--fin-blur, 16px));
+}
+
+.finamp-sidebar {
+  background-color: color-mix(
+    in srgb,
+    var(--fin-sidebar) calc(var(--fin-sidebar-opacity, 0.88) * 100%),
+    transparent
+  );
+  backdrop-filter: blur(var(--fin-blur, 16px));
+}
+
+.finamp-player-bar {
+  background-color: color-mix(
+    in srgb,
+    var(--fin-player) calc(var(--fin-player-opacity, 0.92) * 100%),
+    transparent
+  );
+  backdrop-filter: blur(var(--fin-blur, 16px));
+}
+
+.finamp-drawer {
+  background-color: color-mix(in srgb, var(--fin-sidebar) 95%, #000000);
+  backdrop-filter: blur(24px);
+}

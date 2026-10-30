@@ -16,6 +16,9 @@ import {
   ZoomIn,
   PanelTop,
   PanelBottom,
+  Lock,
+  Unlock,
+  Square,
 } from 'lucide-react';
 import {
   JellyfinServerConfig,
@@ -51,10 +54,16 @@ export const SearchBarSection: React.FC<SearchBarSectionProps> = ({
   const fontSizePx = layoutConfig?.searchBarFontSizePx ?? 15;
   const pos = layoutConfig?.searchBarPosition || 'titlebar';
 
+  const isLocked = layoutConfig?.layoutLocked ?? true;
+
   return (
     <div
-      draggable
+      draggable={!isLocked}
       onDragStart={(e) => {
+        if (isLocked) {
+          e.preventDefault();
+          return;
+        }
         e.dataTransfer.setData('text/plain', 'search');
         e.dataTransfer.effectAllowed = 'move';
         onDragStartSection?.('search');
@@ -65,37 +74,44 @@ export const SearchBarSection: React.FC<SearchBarSectionProps> = ({
       }}
       data-testid="search-bar-section"
       data-position={pos}
-      className={`relative flex-1 w-full transition-all duration-200 ${
-        isHeroDeck ? 'mx-auto py-2 px-4' : 'mx-4'
+      className={`relative flex-1 min-w-0 w-full transition-all duration-200 ${
+        isHeroDeck ? 'mx-auto py-2 px-4' : 'mx-2 sm:mx-4'
       }`}
     >
       <div className="relative flex items-center w-full group">
-        {/* Drag Handle for Search Section */}
-        <div
-          className="absolute left-2.5 top-1/2 -translate-y-1/2 flex items-center gap-1 text-slate-500 hover:text-cyan-400 cursor-grab active:cursor-grabbing z-10"
-          title="Drag Search Bar to Top Hero Deck, Bottom Command Bar, or Titlebar"
-        >
-          <GripVertical className="w-3.5 h-3.5 opacity-60 group-hover:opacity-100 transition" />
-          <Search
-            style={{
-              width: `${Math.max(15, Math.round(fontSizePx * 1.1))}px`,
-              height: `${Math.max(15, Math.round(fontSizePx * 1.1))}px`,
-            }}
-            className="text-cyan-400 pointer-events-none"
-          />
-        </div>
+        {/* Drag Handle for Search Section (only when unlocked) */}
+        {!isLocked && (
+          <div
+            className="absolute left-2.5 top-1/2 -translate-y-1/2 flex items-center gap-1 text-slate-500 hover:text-cyan-400 cursor-grab active:cursor-grabbing z-10"
+            title="Drag Search Bar to Top Hero Deck, Bottom Command Bar, or Titlebar"
+          >
+            <GripVertical className="w-3.5 h-3.5 opacity-60 group-hover:opacity-100 transition" />
+          </div>
+        )}
+
+        <Search
+          style={{
+            width: `${Math.max(15, Math.round(fontSizePx * 1.1))}px`,
+            height: `${Math.max(15, Math.round(fontSizePx * 1.1))}px`,
+            left: isLocked ? '14px' : '32px',
+          }}
+          className="absolute top-1/2 -translate-y-1/2 text-cyan-400 pointer-events-none z-10 transition-all"
+        />
 
         <input
           ref={searchInputRef}
           type="text"
+          draggable={false}
+          onMouseDown={(e) => e.stopPropagation()}
           value={searchQuery}
           onChange={(e) => onSearchChange(e.target.value)}
           style={{
             height: `${heightPx}px`,
             fontSize: `${fontSizePx}px`,
+            paddingLeft: isLocked ? '40px' : '56px',
           }}
           placeholder="Search all music, tracks, albums, artists, genres, FLAC bitrates... (Press / to focus)"
-          className="w-full bg-[#111628] hover:bg-[#151b30] focus:bg-[#182039] text-slate-100 placeholder:text-slate-400 rounded-2xl pl-12 pr-36 border border-white/15 focus:border-[var(--fin-accent)] focus:ring-2 focus:ring-[var(--fin-accent)]/25 focus:outline-none transition-all shadow-inner font-sans"
+          className="w-full bg-[#111628] hover:bg-[#151b30] focus:bg-[#182039] text-slate-100 placeholder:text-slate-400 rounded-2xl pr-36 border border-white/15 focus:border-[var(--fin-accent)] focus:ring-2 focus:ring-[var(--fin-accent)]/25 focus:outline-none transition-all shadow-inner font-sans"
         />
 
         {searchQuery && (
@@ -265,6 +281,7 @@ interface TitlebarProps {
   currentTrack: Track | null;
   searchQuery: string;
   onSearchChange: (query: string) => void;
+  onGoHome?: () => void;
   onOpenServerModal: () => void;
   onOpenDspModal: () => void;
   onOpenSpecsModal: () => void;
@@ -283,6 +300,7 @@ export const Titlebar: React.FC<TitlebarProps> = ({
   currentTrack,
   searchQuery,
   onSearchChange,
+  onGoHome,
   onOpenServerModal,
   onOpenDspModal,
   onOpenSpecsModal,
@@ -295,33 +313,111 @@ export const Titlebar: React.FC<TitlebarProps> = ({
   onDragStartSection,
   onDragEndSection,
 }) => {
+  const [isResizing, setIsResizing] = useState(false);
   const titlebarHeight = layoutConfig?.titlebarHeightPx ?? 64;
   const showSearchInTitlebar = (layoutConfig?.searchBarPosition || 'titlebar') === 'titlebar';
+
+  const startTitlebarResize = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!onUpdateLayout) return;
+
+    setIsResizing(true);
+    const startY = e.clientY;
+    const startH = titlebarHeight;
+
+    const onMouseMove = (moveEvent: MouseEvent) => {
+      const nextH = Math.max(44, Math.min(110, startH + (moveEvent.clientY - startY)));
+      onUpdateLayout({
+        titlebarHeightPx: nextH,
+        searchBarHeightPx: Math.max(32, Math.min(72, nextH - 16)),
+      });
+    };
+
+    const onMouseUp = () => {
+      setIsResizing(false);
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+      document.body.style.cursor = '';
+    };
+
+    document.body.style.cursor = 'row-resize';
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+  };
+
+  const handleCloseWindow = () => {
+    const desktop = (window as any).jellywispDesktop;
+    if (desktop?.closeWindow) {
+      desktop.closeWindow();
+    } else if (desktop?.close) {
+      desktop.close();
+    }
+  };
+
+  const handleMinimizeWindow = () => {
+    const desktop = (window as any).jellywispDesktop;
+    if (desktop?.minimizeWindow) {
+      desktop.minimizeWindow();
+    } else if (desktop?.minimize) {
+      desktop.minimize();
+    }
+  };
+
+  const handleMaximizeWindow = () => {
+    const desktop = (window as any).jellywispDesktop;
+    if (desktop?.maximizeWindow) {
+      desktop.maximizeWindow();
+    } else if (desktop?.maximize) {
+      desktop.maximize();
+    } else if (document.fullscreenElement) {
+      document.exitFullscreen().catch(() => {});
+    } else {
+      document.documentElement.requestFullscreen?.().catch(() => {});
+    }
+  };
+
+  const isLocked = layoutConfig?.layoutLocked ?? true;
+  const isMacTitlebar = layoutConfig?.titlebarStyle === 'mac';
 
   return (
     <header
       style={{ height: `${titlebarHeight}px` }}
-      className={`bg-[#080b13]/95 border-b border-white/10 flex items-center justify-between px-4 shrink-0 select-none backdrop-blur-md z-30 transition-all ${
+      className={`finamp-titlebar border-b border-white/10 flex items-center justify-between px-4 shrink-0 select-none backdrop-blur-md z-30 relative ${
         layoutConfig?.swapTitlebarSides ? 'flex-row-reverse' : 'flex-row'
       }`}
     >
-      {/* Left: Window Controls, App Branding & Server Status */}
+      {/* Real-time Bottom Edge Drag Resize Handle (only when layout is unlocked) */}
+      {onUpdateLayout && !isLocked && (
+        <div
+          onMouseDown={startTitlebarResize}
+          title="Drag bottom edge to resize titlebar height"
+          className={`absolute left-0 right-0 bottom-0 h-1.5 z-40 cursor-row-resize hover:bg-cyan-400/60 transition-colors ${
+            isResizing ? 'bg-cyan-400' : ''
+          }`}
+        />
+      )}
+
+      {/* Left: Window Controls (if mac), App Branding & Server Status */}
       <div className="flex items-center gap-3 shrink-0">
-        {layoutConfig?.showWindowControls !== false && (
+        {layoutConfig?.showWindowControls !== false && isMacTitlebar && (
           <div className="flex items-center gap-1.5 mr-2">
             <button
+              onClick={handleCloseWindow}
               aria-label="Close window"
               className="w-3 h-3 rounded-full bg-rose-500/80 hover:bg-rose-500 flex items-center justify-center group transition"
             >
               <X className="w-2 h-2 text-rose-950 opacity-0 group-hover:opacity-100 transition" />
             </button>
             <button
+              onClick={handleMinimizeWindow}
               aria-label="Minimize window"
               className="w-3 h-3 rounded-full bg-amber-500/80 hover:bg-amber-500 flex items-center justify-center group transition"
             >
               <Minus className="w-2 h-2 text-amber-950 opacity-0 group-hover:opacity-100 transition" />
             </button>
             <button
+              onClick={handleMaximizeWindow}
               aria-label="Maximize window"
               className="w-3 h-3 rounded-full bg-emerald-500/80 hover:bg-emerald-500 flex items-center justify-center group transition"
             >
@@ -330,19 +426,21 @@ export const Titlebar: React.FC<TitlebarProps> = ({
           </div>
         )}
 
-        {/* JellyWisp App Logo & Branding */}
+        {/* Clickable JellyWisp App Logo -> Returns to Home */}
         {layoutConfig?.showBrandLogo !== false && (
-          <div className="flex items-center gap-2">
-            <div className="w-6 h-6 rounded-lg bg-gradient-to-tr from-cyan-400 via-sky-500 to-indigo-600 flex items-center justify-center shadow-md shadow-cyan-500/30">
+          <button
+            type="button"
+            onClick={() => onGoHome?.()}
+            className="flex items-center gap-2 px-2 py-1 rounded-xl hover:bg-white/10 active:scale-95 transition cursor-pointer group"
+            title="Click JellyWisp logo to return Home"
+          >
+            <div className="w-6 h-6 rounded-lg bg-gradient-to-tr from-cyan-400 via-sky-500 to-indigo-600 flex items-center justify-center shadow-md shadow-cyan-500/30 group-hover:scale-105 transition">
               <Waves className="w-3.5 h-3.5 text-slate-950" />
             </div>
-            <span className="text-sm font-extrabold tracking-wider text-slate-100">
+            <span className="text-sm font-extrabold tracking-wider text-slate-100 group-hover:text-white transition">
               JELLY<span className="text-[var(--fin-accent)] font-black">WISP</span>
             </span>
-            <span className="text-[9px] text-cyan-300 font-mono hidden sm:inline px-1.5 py-0.5 rounded bg-cyan-950/60 border border-cyan-500/30 font-bold">
-              STUDIO
-            </span>
-          </div>
+          </button>
         )}
 
         {/* Jellyfin Server Connection Pill */}
@@ -402,7 +500,32 @@ export const Titlebar: React.FC<TitlebarProps> = ({
           </button>
         )}
 
-        {onToggleLayoutEditMode && (
+        {/* Accidental Drag Prevention Lock Button */}
+        {onUpdateLayout && (
+          <button
+            onClick={() => onUpdateLayout({ layoutLocked: !isLocked })}
+            data-testid="toggle-layout-lock-btn"
+            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-bold transition border ${
+              isLocked
+                ? 'bg-white/5 hover:bg-white/10 text-slate-300 border-white/10'
+                : 'bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border-amber-400/50 shadow-md shadow-amber-500/10'
+            }`}
+            title={
+              isLocked
+                ? 'Layout is Locked: Accidental real-time drag & dock is disabled. Click to unlock.'
+                : 'Layout is Unlocked: Real-time drag & dock is active. Click to lock.'
+            }
+          >
+            {isLocked ? (
+              <Lock className="w-3.5 h-3.5 text-cyan-400" />
+            ) : (
+              <Unlock className="w-3.5 h-3.5 text-amber-400 animate-pulse" />
+            )}
+            <span className="hidden sm:inline">{isLocked ? 'Locked' : 'Unlocked'}</span>
+          </button>
+        )}
+
+        {onToggleLayoutEditMode && !isLocked && (
           <button
             onClick={onToggleLayoutEditMode}
             data-testid="toggle-layout-mode-btn"
@@ -461,6 +584,36 @@ export const Titlebar: React.FC<TitlebarProps> = ({
           <Settings className="w-4 h-4 text-[var(--fin-accent)]" />
           <span>Settings</span>
         </button>
+
+        {/* Windows Desktop Titlebar Controls (Minimize, Maximize/Restore, Close) */}
+        {layoutConfig?.showWindowControls !== false && !isMacTitlebar && (
+          <div className="flex items-center h-full ml-2 border-l border-white/10 pl-1">
+            <button
+              onClick={handleMinimizeWindow}
+              aria-label="Minimize"
+              className="w-10 h-8 flex items-center justify-center hover:bg-white/10 text-slate-400 hover:text-white transition rounded-md"
+              title="Minimize"
+            >
+              <Minus className="w-3.5 h-3.5" />
+            </button>
+            <button
+              onClick={handleMaximizeWindow}
+              aria-label="Maximize or Restore"
+              className="w-10 h-8 flex items-center justify-center hover:bg-white/10 text-slate-400 hover:text-white transition rounded-md"
+              title="Maximize"
+            >
+              <Square className="w-3 h-3" />
+            </button>
+            <button
+              onClick={handleCloseWindow}
+              aria-label="Close"
+              className="w-10 h-8 flex items-center justify-center hover:bg-rose-600 hover:text-white text-slate-400 transition rounded-md"
+              title="Close"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
       </div>
     </header>
   );

@@ -22,14 +22,25 @@ export const PerformanceSpecsModal: React.FC<PerformanceSpecsModalProps> = ({
     bitDepth: currentTrack?.bitDepth || 24,
     codec: currentTrack?.codec || 'FLAC',
     bitrate: currentTrack?.bitrate || 1411,
-    bufferSeconds: 14.5,
+    bufferSeconds: 15,
     bufferHealthPct: 96,
     underrunCount: 0,
-    latencyMs: 11.8,
+    latencyMs: 12,
     audioContextState: 'running',
     peakLevelL: 78,
     peakLevelR: 82,
   };
+
+  const sampleRateKhz = Math.round(m.sampleRate / 1000);
+  const nyquistKhz = Math.round(m.sampleRate / 2000);
+  const dynamicRangeDb = Math.round(m.bitDepth * 6);
+  const bufferSecsWhole = Math.round(m.bufferSeconds);
+  const bufferHealthWhole = Math.round(m.bufferHealthPct);
+  const latencyWhole = Math.round(m.latencyMs);
+  const peakLWhole = Math.round(m.peakLevelL);
+  const peakRWhole = Math.round(m.peakLevelR);
+  const dbL = peakLWhole > 0 ? `-${Math.round((100 - peakLWhole) * 0.4)} dB` : '-inf';
+  const dbR = peakRWhole > 0 ? `-${Math.round((100 - peakRWhole) * 0.4)} dB` : '-inf';
 
   return (
     <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-md flex items-center justify-center p-4">
@@ -82,34 +93,34 @@ export const PerformanceSpecsModal: React.FC<PerformanceSpecsModalProps> = ({
             {/* Format & Codec */}
             <div className="bg-black/30 p-3.5 rounded-xl border border-white/5 space-y-1">
               <span className="text-[10px] font-mono text-slate-400 uppercase">Container / Codec</span>
-              <p className="text-lg font-bold text-white font-mono">{m.codec}</p>
+              <p className="text-lg font-bold text-white font-mono tabular-nums">{m.codec}</p>
               <span className="text-[10px] text-emerald-400 font-mono">Bit-Perfect Stream</span>
             </div>
 
             {/* Sample Rate */}
             <div className="bg-black/30 p-3.5 rounded-xl border border-white/5 space-y-1">
               <span className="text-[10px] font-mono text-slate-400 uppercase">Sample Rate</span>
-              <p className="text-lg font-bold text-cyan-400 font-mono">
-                {(m.sampleRate / 1000).toFixed(1)} kHz
+              <p className="text-lg font-bold text-cyan-400 font-mono tabular-nums">
+                {sampleRateKhz} kHz
               </p>
-              <span className="text-[10px] text-slate-400 font-mono">
-                Nyquist: {(m.sampleRate / 2000).toFixed(1)} kHz
+              <span className="text-[10px] text-slate-400 font-mono tabular-nums">
+                Nyquist: {nyquistKhz} kHz
               </span>
             </div>
 
             {/* Bit Depth */}
             <div className="bg-black/30 p-3.5 rounded-xl border border-white/5 space-y-1">
               <span className="text-[10px] font-mono text-slate-400 uppercase">Quantization</span>
-              <p className="text-lg font-bold text-purple-400 font-mono">{m.bitDepth}-bit</p>
-              <span className="text-[10px] text-slate-400 font-mono">
-                Dynamic Range: ~{m.bitDepth * 6.02} dB
+              <p className="text-lg font-bold text-purple-400 font-mono tabular-nums">{Math.round(m.bitDepth)}-bit</p>
+              <span className="text-[10px] text-slate-400 font-mono tabular-nums">
+                Dynamic Range: ~{dynamicRangeDb} dB
               </span>
             </div>
 
             {/* Bitrate */}
             <div className="bg-black/30 p-3.5 rounded-xl border border-white/5 space-y-1">
               <span className="text-[10px] font-mono text-slate-400 uppercase">Effective Bitrate</span>
-              <p className="text-lg font-bold text-amber-400 font-mono">{m.bitrate} kbps</p>
+              <p className="text-lg font-bold text-amber-400 font-mono tabular-nums">{Math.round(m.bitrate)} kbps</p>
               <span className="text-[10px] text-slate-400 font-mono">Variable Lossless</span>
             </div>
           </div>
@@ -125,18 +136,18 @@ export const PerformanceSpecsModal: React.FC<PerformanceSpecsModalProps> = ({
                     Buffer Ahead Health
                   </span>
                 </div>
-                <span className="text-xs font-mono font-bold text-cyan-400">
-                  {m.bufferSeconds.toFixed(1)}s ({m.bufferHealthPct}%)
+                <span className="text-xs font-mono font-bold text-cyan-400 tabular-nums">
+                  {bufferSecsWhole}s ({bufferHealthWhole}%)
                 </span>
               </div>
               <div className="w-full h-2 rounded-full bg-white/10 overflow-hidden">
                 <div
                   className="h-full bg-gradient-to-r from-emerald-500 to-cyan-400 transition-all duration-300"
-                  style={{ width: `${m.bufferHealthPct}%` }}
+                  style={{ width: `${bufferHealthWhole}%` }}
                 />
               </div>
-              <div className="flex items-center justify-between text-[10px] text-slate-400 font-mono">
-                <span>Underrun Stalls: {m.underrunCount}</span>
+              <div className="flex items-center justify-between text-[10px] text-slate-400 font-mono tabular-nums">
+                <span>Underrun Stalls: {Math.round(m.underrunCount)}</span>
                 <span className="text-emerald-400">Optimal Buffer Status</span>
               </div>
             </div>
@@ -150,18 +161,18 @@ export const PerformanceSpecsModal: React.FC<PerformanceSpecsModalProps> = ({
                     Audio Hardware Latency
                   </span>
                 </div>
-                <span className="text-xs font-mono font-bold text-amber-400">
-                  {m.latencyMs} ms
+                <span className="text-xs font-mono font-bold text-amber-400 tabular-nums">
+                  {latencyWhole} ms
                 </span>
               </div>
               <div className="w-full h-2 rounded-full bg-white/10 overflow-hidden">
                 <div
                   className="h-full bg-amber-400 transition-all duration-300"
-                  style={{ width: `${Math.min(100, (m.latencyMs / 40) * 100)}%` }}
+                  style={{ width: `${Math.min(100, Math.round((latencyWhole / 40) * 100))}%` }}
                 />
               </div>
-              <p className="text-[10px] text-slate-400 font-mono">
-                Base buffer: 5.1ms | Output DAC: 6.7ms (Zero perceived lag)
+              <p className="text-[10px] text-slate-400 font-mono tabular-nums">
+                Base buffer: 5ms | Output DAC: 7ms (Zero perceived lag)
               </p>
             </div>
           </div>
@@ -176,12 +187,12 @@ export const PerformanceSpecsModal: React.FC<PerformanceSpecsModalProps> = ({
                 <span className="text-[10px] font-mono text-slate-400 w-3">L</span>
                 <div className="flex-1 h-3 rounded bg-white/10 overflow-hidden relative">
                   <div
-                    className="h-full bg-gradient-to-r from-emerald-500 via-cyan-400 to-rose-500 transition-all duration-75"
-                    style={{ width: `${m.peakLevelL}%` }}
+                    className="h-full bg-gradient-to-r from-emerald-500 via-cyan-400 to-rose-500 transition-all duration-150"
+                    style={{ width: `${peakLWhole}%` }}
                   />
                 </div>
-                <span className="text-[10px] font-mono text-cyan-300 w-12 text-right">
-                  {m.peakLevelL > 0 ? `-${(100 - m.peakLevelL) * 0.4} dB` : '-inf'}
+                <span className="text-[10px] font-mono text-cyan-300 w-14 text-right tabular-nums">
+                  {dbL}
                 </span>
               </div>
 
@@ -189,12 +200,12 @@ export const PerformanceSpecsModal: React.FC<PerformanceSpecsModalProps> = ({
                 <span className="text-[10px] font-mono text-slate-400 w-3">R</span>
                 <div className="flex-1 h-3 rounded bg-white/10 overflow-hidden relative">
                   <div
-                    className="h-full bg-gradient-to-r from-emerald-500 via-cyan-400 to-rose-500 transition-all duration-75"
-                    style={{ width: `${m.peakLevelR}%` }}
+                    className="h-full bg-gradient-to-r from-emerald-500 via-cyan-400 to-rose-500 transition-all duration-150"
+                    style={{ width: `${peakRWhole}%` }}
                   />
                 </div>
-                <span className="text-[10px] font-mono text-cyan-300 w-12 text-right">
-                  {m.peakLevelR > 0 ? `-${(100 - m.peakLevelR) * 0.4} dB` : '-inf'}
+                <span className="text-[10px] font-mono text-cyan-300 w-14 text-right tabular-nums">
+                  {dbR}
                 </span>
               </div>
             </div>

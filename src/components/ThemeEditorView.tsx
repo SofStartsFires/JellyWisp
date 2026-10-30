@@ -70,6 +70,7 @@ export const ThemeEditorView: React.FC<ThemeEditorViewProps> = ({
   const [copied, setCopied] = useState(false);
   const [importStr, setImportStr] = useState('');
   const [showImportModal, setShowImportModal] = useState(false);
+  const [importError, setImportError] = useState<string | null>(null);
 
   const handleCopyJson = () => {
     navigator.clipboard.writeText(themeEngine.exportThemeJson());
@@ -81,10 +82,26 @@ export const ThemeEditorView: React.FC<ThemeEditorViewProps> = ({
     if (themeEngine.importThemeJson(importStr)) {
       setShowImportModal(false);
       setImportStr('');
+      setImportError(null);
     } else {
-      alert('Invalid Theme JSON');
+      setImportError('Invalid Theme JSON format.');
     }
   };
+
+  const quickColorSwatches = [
+    '#ffffff',
+    '#f8fafc',
+    '#e2e8f0',
+    '#94a3b8',
+    '#06b6d4',
+    '#38bdf8',
+    '#a855f7',
+    '#ec4899',
+    '#f43f5e',
+    '#f59e0b',
+    '#10b981',
+    '#84cc16',
+  ];
 
   return (
     <div className="flex-1 flex flex-col h-full overflow-y-auto p-6 select-none space-y-8">
@@ -96,11 +113,11 @@ export const ThemeEditorView: React.FC<ThemeEditorViewProps> = ({
               <Palette className="w-5 h-5" />
             </div>
             <h1 className="text-2xl font-bold text-white tracking-tight">
-              Theme Customization & Live CSS Injector
+              Theme Customization, Outer Docks & Typography Colors
             </h1>
           </div>
           <p className="text-xs text-slate-400 mt-1 max-w-2xl">
-            Fine-tune color schemes, module transparency, backdrop blur, or write custom live CSS that instantly modifies the desktop interface.
+            Customize outer UI docks (Titlebar, Sidebar, Player Bar), dedicated text colors for Track Title, Artist Name, and Album Name, glass blur, or live CSS.
           </p>
         </div>
 
@@ -126,7 +143,7 @@ export const ThemeEditorView: React.FC<ThemeEditorViewProps> = ({
       {/* Preset Themes Selector */}
       <div className="space-y-3">
         <span className="text-xs font-bold text-slate-400 uppercase tracking-wider font-mono">
-          Curated Audiophile & Desktop Themes
+          Curated Audiophile & Full-Window Themes (Includes Outer Docks & Sidebars)
         </span>
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
           {PRESET_THEMES.map((preset) => {
@@ -146,14 +163,22 @@ export const ThemeEditorView: React.FC<ThemeEditorViewProps> = ({
                   <span
                     className="w-4 h-4 rounded-full border border-white/20 shadow-sm"
                     style={{ backgroundColor: preset.accentColor }}
+                    title="Accent"
+                  />
+                  <span
+                    className="w-4 h-4 rounded-full border border-white/20 shadow-sm"
+                    style={{ backgroundColor: preset.sidebarColor }}
+                    title="Sidebar / Dock"
+                  />
+                  <span
+                    className="w-4 h-4 rounded-full border border-white/20 shadow-sm"
+                    style={{ backgroundColor: preset.playerColor }}
+                    title="Player Bar"
                   />
                   <span
                     className="w-4 h-4 rounded-full border border-white/20 shadow-sm"
                     style={{ backgroundColor: preset.bgColor }}
-                  />
-                  <span
-                    className="w-4 h-4 rounded-full border border-white/20 shadow-sm"
-                    style={{ backgroundColor: preset.surfaceColor }}
+                    title="Main Canvas"
                   />
                 </div>
 
@@ -169,20 +194,162 @@ export const ThemeEditorView: React.FC<ThemeEditorViewProps> = ({
         </div>
       </div>
 
-      {/* Granular Module Transparency & Backdrop Blur Sliders */}
-      <div className="space-y-4 bg-black/20 p-6 rounded-2xl border border-white/5">
+      {/* Dedicated Text Color Category: Track Title, Artist Name, Album Name */}
+      <div className="space-y-4 bg-gradient-to-r from-cyan-950/30 via-slate-900/50 to-purple-950/30 p-6 rounded-2xl border border-cyan-500/25">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <div className="flex items-center gap-2">
+              <Sparkles className="w-4 h-4 text-cyan-400" />
+              <h3 className="text-sm font-bold text-white uppercase tracking-wider font-mono">
+                Dedicated Metadata Text Colors (Track Title • Artist Name • Album Name)
+              </h3>
+            </div>
+            <p className="text-xs text-slate-400 mt-0.5">
+              Independently colorize Track Titles, Artist Names, and Album Titles across all tracklists, album grids, and player docks.
+            </p>
+          </div>
+          <button
+            onClick={() =>
+              onUpdateTheme({
+                trackTitleColor: '#f8fafc',
+                artistNameColor: '#cbd5e1',
+                albumNameColor: '#94a3b8',
+              })
+            }
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-[11px] font-mono text-slate-300 border border-white/10 transition"
+          >
+            <RotateCcw className="w-3 h-3" />
+            <span>Reset Text Colors</span>
+          </button>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-1">
+          {[
+            {
+              key: 'trackTitleColor' as const,
+              label: 'Track Title Text Color',
+              sample: '01. Starlight Resonance (24-Bit Master)',
+              value: currentTheme.trackTitleColor || currentTheme.textPrimary || '#f8fafc',
+            },
+            {
+              key: 'artistNameColor' as const,
+              label: 'Artist Name Text Color',
+              sample: 'Lumina & The Analog Synthesizers',
+              value: currentTheme.artistNameColor || currentTheme.textSecondary || '#cbd5e1',
+            },
+            {
+              key: 'albumNameColor' as const,
+              label: 'Album Name Text Color',
+              sample: 'Odyssey in C Minor (Deluxe LP)',
+              value: currentTheme.albumNameColor || currentTheme.textSecondary || '#94a3b8',
+            },
+          ].map((item) => (
+            <div
+              key={item.key}
+              className="p-4 rounded-xl bg-black/40 border border-white/10 space-y-3"
+            >
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-white">{item.label}</span>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="color"
+                    value={item.value}
+                    onChange={(e) => onUpdateTheme({ [item.key]: e.target.value })}
+                    className="w-7 h-7 rounded-lg border border-white/20 cursor-pointer bg-transparent"
+                  />
+                  <span className="text-[11px] font-mono text-cyan-300 uppercase">
+                    {item.value}
+                  </span>
+                </div>
+              </div>
+
+              {/* Live Sample Preview */}
+              <div className="px-3 py-2 rounded-lg bg-white/5 border border-white/5 truncate text-xs font-semibold" style={{ color: item.value }}>
+                {item.sample}
+              </div>
+
+              {/* Quick Swatches */}
+              <div className="flex items-center gap-1.5 flex-wrap">
+                {quickColorSwatches.map((hex) => (
+                  <button
+                    key={hex}
+                    onClick={() => onUpdateTheme({ [item.key]: hex })}
+                    className={`w-4 h-4 rounded-full border transition ${
+                      item.value.toLowerCase() === hex.toLowerCase()
+                        ? 'border-white scale-125 shadow'
+                        : 'border-white/20 hover:scale-110'
+                    }`}
+                    style={{ backgroundColor: hex }}
+                    title={hex}
+                  />
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Outer UI Docks & Module Transparency */}
+      <div className="space-y-5 bg-black/20 p-6 rounded-2xl border border-white/5">
         <div className="flex items-center gap-2">
           <Layers className="w-4 h-4 text-cyan-400" />
           <h3 className="text-sm font-bold text-white">
-            Individual Module Transparency & Glass Blur
+            Outer UI Docks (Titlebar, Sidebar, Player Bar) & Glass Opacity
           </h3>
+        </div>
+
+        {/* Outer UI Color Pickers */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+          {[
+            {
+              key: 'accentColor' as const,
+              label: 'Primary Accent',
+              value: currentTheme.accentColor,
+            },
+            {
+              key: 'titlebarColor' as const,
+              label: 'Top Titlebar Dock',
+              value: currentTheme.titlebarColor || currentTheme.sidebarColor,
+            },
+            {
+              key: 'sidebarColor' as const,
+              label: 'Sidebar / Nav Dock',
+              value: currentTheme.sidebarColor,
+            },
+            {
+              key: 'playerColor' as const,
+              label: 'Player Bar Dock',
+              value: currentTheme.playerColor,
+            },
+            {
+              key: 'bgColor' as const,
+              label: 'Main Canvas BG',
+              value: currentTheme.bgColor,
+            },
+          ].map((col) => (
+            <div
+              key={col.key}
+              className="p-3 rounded-xl bg-white/5 border border-white/10 flex items-center justify-between gap-2"
+            >
+              <div className="min-w-0">
+                <p className="text-[11px] font-bold text-slate-200 truncate">{col.label}</p>
+                <p className="text-[10px] font-mono text-slate-400 uppercase">{col.value}</p>
+              </div>
+              <input
+                type="color"
+                value={col.value}
+                onChange={(e) => onUpdateTheme({ [col.key]: e.target.value })}
+                className="w-8 h-8 rounded-lg border border-white/20 cursor-pointer bg-transparent shrink-0"
+              />
+            </div>
+          ))}
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 pt-2">
           {/* Sidebar Opacity */}
           <div className="space-y-2">
             <div className="flex items-center justify-between text-xs text-slate-300">
-              <span>Sidebar Opacity</span>
+              <span>Sidebar & Titlebar Opacity</span>
               <span className="font-mono text-cyan-400 font-bold">
                 {Math.round(currentTheme.sidebarOpacity * 100)}%
               </span>
@@ -201,7 +368,7 @@ export const ThemeEditorView: React.FC<ThemeEditorViewProps> = ({
           {/* Player Bar Opacity */}
           <div className="space-y-2">
             <div className="flex items-center justify-between text-xs text-slate-300">
-              <span>Player Bar Opacity</span>
+              <span>Player Bar Dock Opacity</span>
               <span className="font-mono text-cyan-400 font-bold">
                 {Math.round(currentTheme.playerOpacity * 100)}%
               </span>
@@ -251,35 +418,6 @@ export const ThemeEditorView: React.FC<ThemeEditorViewProps> = ({
               onChange={(e) => onUpdateTheme({ blurPx: parseInt(e.target.value) })}
               className="w-full h-1.5 bg-white/10 rounded-lg appearance-none cursor-pointer accent-[var(--fin-accent)]"
             />
-          </div>
-        </div>
-
-        {/* Custom Accent Color Picker */}
-        <div className="pt-4 border-t border-white/5 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <span className="text-xs font-semibold text-slate-300">Primary Accent Color</span>
-            <input
-              type="color"
-              value={currentTheme.accentColor}
-              onChange={(e) => onUpdateTheme({ accentColor: e.target.value })}
-              className="w-8 h-8 rounded-lg border border-white/20 cursor-pointer bg-transparent"
-            />
-            <span className="text-xs font-mono text-slate-400 uppercase">
-              {currentTheme.accentColor}
-            </span>
-          </div>
-
-          <div className="flex items-center gap-3">
-            <span className="text-xs font-semibold text-slate-300">Deep Canvas Background</span>
-            <input
-              type="color"
-              value={currentTheme.bgColor}
-              onChange={(e) => onUpdateTheme({ bgColor: e.target.value })}
-              className="w-8 h-8 rounded-lg border border-white/20 cursor-pointer bg-transparent"
-            />
-            <span className="text-xs font-mono text-slate-400 uppercase">
-              {currentTheme.bgColor}
-            </span>
           </div>
         </div>
       </div>
