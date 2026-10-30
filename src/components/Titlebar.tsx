@@ -383,7 +383,7 @@ export const Titlebar: React.FC<TitlebarProps> = ({
   return (
     <header
       style={{ height: `${titlebarHeight}px` }}
-      className={`finamp-titlebar border-b border-white/10 flex items-center justify-between px-4 shrink-0 select-none backdrop-blur-md z-30 relative ${
+      className={`jellywisp-titlebar border-b border-white/10 flex items-center justify-between px-4 shrink-0 select-none backdrop-blur-md z-30 relative ${
         layoutConfig?.swapTitlebarSides ? 'flex-row-reverse' : 'flex-row'
       }`}
     >

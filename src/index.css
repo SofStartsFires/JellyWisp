@@ -98,12 +98,12 @@ body, input, button, select, textarea {
 }
 
 /* Outer Chrome / Dock Theme Surfaces */
-.finamp-titlebar {
+.jellywisp-titlebar {
   background-color: color-mix(in srgb, var(--fin-titlebar, var(--fin-sidebar)) 92%, transparent);
   backdrop-filter: blur(var(--fin-blur, 16px));
 }
 
-.finamp-sidebar {
+.jellywisp-sidebar {
   background-color: color-mix(
     in srgb,
     var(--fin-sidebar) calc(var(--fin-sidebar-opacity, 0.88) * 100%),
@@ -112,7 +112,7 @@ body, input, button, select, textarea {
   backdrop-filter: blur(var(--fin-blur, 16px));
 }
 
-.finamp-player-bar {
+.jellywisp-player-bar {
   background-color: color-mix(
     in srgb,
     var(--fin-player) calc(var(--fin-player-opacity, 0.92) * 100%),
@@ -121,7 +121,7 @@ body, input, button, select, textarea {
   backdrop-filter: blur(var(--fin-blur, 16px));
 }
 
-.finamp-drawer {
+.jellywisp-drawer {
   background-color: color-mix(in srgb, var(--fin-sidebar) 95%, #000000);
   backdrop-filter: blur(24px);
 }

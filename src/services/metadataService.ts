@@ -171,7 +171,7 @@ export class MetadataService {
               {
                 headers: {
                   Accept: 'application/json',
-                  'User-Agent': 'Jellywisp/2.7.0 (https://github.com/finamp-desktop)',
+                  'User-Agent': 'Jellywisp/2.7.0 (https://github.com/jellywisp-desktop)',
                 },
               },
               4500
@@ -300,7 +300,7 @@ export class MetadataService {
         {
           headers: {
             Accept: 'application/json',
-            'User-Agent': 'Jellywisp/2.7.0 (https://github.com/finamp-desktop)',
+            'User-Agent': 'Jellywisp/2.7.0 (https://github.com/jellywisp-desktop)',
           },
         },
         4000

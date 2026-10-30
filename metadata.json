@@ -1,5 +1,5 @@
 {
-  "name": "FinAmp Desktop - Jellyfin Music Client",
+  "name": "Jellywisp Desktop - Jellyfin Music Client",
   "description": "Visually stunning desktop Jellyfin music client with DSP audio engine, live CSS theming, smart mood playlists, album art search, and high-res performance metrics.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]

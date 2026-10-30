@@ -20,7 +20,7 @@ export const DEFAULT_HOTKEYS: HotkeyBinding[] = [
   { id: 'open_metadata_editor', label: 'Edit Track Metadata', category: 'dsp', keyCombo: 'KeyI' },
 ];
 
-const STORAGE_KEY_HOTKEYS = 'finamp_hotkey_bindings';
+const STORAGE_KEY_HOTKEYS = 'jellywisp_hotkey_bindings';
 
 export class HotkeyService {
   private bindings: HotkeyBinding[];
@@ -73,7 +73,7 @@ export class HotkeyService {
       (target.tagName === 'INPUT' ||
         target.tagName === 'TEXTAREA' ||
         target.isContentEditable ||
-        target.classList.contains('finamp-ignore-hotkeys'))
+        target.classList.contains('jellywisp-ignore-hotkeys'))
     ) {
       // Allow Escape to blur
       if (e.code === 'Escape') {

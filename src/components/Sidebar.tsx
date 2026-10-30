@@ -285,7 +285,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           fontSize: `${navItemScale}%`,
         }}
         aria-label="Main navigation tabs"
-        className={`w-full bg-[var(--fin-sidebar)] px-4 flex items-center justify-between gap-2 shrink-0 select-none backdrop-blur-[var(--fin-blur)] z-20 finamp-sidebar relative ${
+        className={`w-full bg-[var(--fin-sidebar)] px-4 flex items-center justify-between gap-2 shrink-0 select-none backdrop-blur-[var(--fin-blur)] z-20 jellywisp-sidebar relative ${
           position === 'top' ? 'border-b border-white/10' : 'border-t border-white/10'
         } ${isLayoutEditMode ? 'ring-2 ring-cyan-400/60 bg-cyan-950/20' : ''}`}
       >
@@ -387,7 +387,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       style={{ width: isCompact ? '68px' : `${sidebarWidth}px` }}
       className={`bg-[var(--fin-sidebar)] ${
         position === 'right' ? 'border-l' : 'border-r'
-      } border-white/5 flex flex-col justify-between shrink-0 select-none backdrop-blur-[var(--fin-blur)] z-20 finamp-sidebar relative ${
+      } border-white/5 flex flex-col justify-between shrink-0 select-none backdrop-blur-[var(--fin-blur)] z-20 jellywisp-sidebar relative ${
         isLayoutEditMode ? 'ring-2 ring-cyan-400/60' : ''
       }`}
     >

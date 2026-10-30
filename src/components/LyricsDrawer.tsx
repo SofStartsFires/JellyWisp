@@ -388,8 +388,8 @@ export const LyricsDrawer: React.FC<LyricsDrawerProps> = ({
       style={isTheaterMode ? undefined : { width: `${widthPx}px` }}
       className={
         isTheaterMode
-          ? 'fixed inset-0 z-50 finamp-drawer bg-[var(--fin-bg)]/95 backdrop-blur-2xl flex flex-col select-none overflow-hidden'
-          : 'fixed right-0 top-11 bottom-20 finamp-drawer border-l border-white/10 backdrop-blur-xl z-30 shadow-2xl flex flex-col select-none overflow-hidden'
+          ? 'fixed inset-0 z-50 jellywisp-drawer bg-[var(--fin-bg)]/95 backdrop-blur-2xl flex flex-col select-none overflow-hidden'
+          : 'fixed right-0 top-11 bottom-20 jellywisp-drawer border-l border-white/10 backdrop-blur-xl z-30 shadow-2xl flex flex-col select-none overflow-hidden'
       }
     >
       {/* Left Edge Mouse Drag Resize Handle (when docked as side drawer) */}
@@ -713,7 +713,7 @@ export const LyricsDrawer: React.FC<LyricsDrawerProps> = ({
                 }}
                 className={`transition-all duration-300 py-2 cursor-pointer rounded-xl px-4 ${
                   isActive
-                    ? `${fontSizeClass.active} font-extrabold text-[var(--fin-accent)] scale-[1.03] finamp-accent-glow bg-[var(--fin-accent)]/12 border border-[var(--fin-accent)]/30`
+                    ? `${fontSizeClass.active} font-extrabold text-[var(--fin-accent)] scale-[1.03] jellywisp-accent-glow bg-[var(--fin-accent)]/12 border border-[var(--fin-accent)]/30`
                     : isPassed
                     ? `${fontSizeClass.idle} font-medium text-slate-500 hover:text-slate-200`
                     : `${fontSizeClass.idle} font-semibold text-slate-300 hover:text-white hover:bg-white/5`

@@ -302,7 +302,7 @@ export const VisualizerOverlay: React.FC<VisualizerOverlayProps> = ({
           <div>
             <div className="flex items-center gap-2">
               <h2 className="text-xl font-bold text-white tracking-tight">
-                {currentTrack?.title || 'FinAmp Visualizer'}
+                {currentTrack?.title || 'Jellywisp Visualizer'}
               </h2>
               {currentTrack && (
                 <span className="text-xs font-mono px-2 py-0.5 rounded bg-cyan-950/80 text-cyan-300 border border-cyan-500/40">

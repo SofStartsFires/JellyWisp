@@ -22,11 +22,11 @@ export const PRESET_THEMES: ThemeConfig[] = [
     playerOpacity: 0.92,
     cardOpacity: 0.70,
     customCss: `/* Cyberpunk Neon Glow */
-.finamp-player-bar {
+.jellywisp-player-bar {
   box-shadow: 0 -4px 30px rgba(6, 182, 212, 0.15);
   border-top: 1px solid rgba(6, 182, 212, 0.3) !important;
 }
-.finamp-accent-glow {
+.jellywisp-accent-glow {
   text-shadow: 0 0 12px rgba(6, 182, 212, 0.6);
 }`,
   },
@@ -54,7 +54,7 @@ export const PRESET_THEMES: ThemeConfig[] = [
 * {
   --fin-card-border: 1px solid rgba(255,255,255,0.1);
 }
-.finamp-card {
+.jellywisp-card {
   border: 1px solid rgba(255, 255, 255, 0.08);
 }`,
   },
@@ -79,7 +79,7 @@ export const PRESET_THEMES: ThemeConfig[] = [
     playerOpacity: 0.92,
     cardOpacity: 0.65,
     customCss: `/* Tokyo Dusk City Lights */
-.finamp-header-gradient {
+.jellywisp-header-gradient {
   background: radial-gradient(circle at 50% 0%, rgba(236, 72, 153, 0.18), transparent 70%);
 }`,
   },
@@ -104,7 +104,7 @@ export const PRESET_THEMES: ThemeConfig[] = [
     playerOpacity: 0.96,
     cardOpacity: 0.80,
     customCss: `/* Analog Warmth & VU Needle */
-.finamp-vu-meter {
+.jellywisp-vu-meter {
   filter: sepia(0.3) saturate(1.2);
 }`,
   },
@@ -129,7 +129,7 @@ export const PRESET_THEMES: ThemeConfig[] = [
     playerOpacity: 0.92,
     cardOpacity: 0.60,
     customCss: `/* Frosted Nordic Minimalism */
-.finamp-frosted {
+.jellywisp-frosted {
   backdrop-filter: blur(24px) saturate(160%);
 }`,
   },
@@ -154,7 +154,7 @@ export const PRESET_THEMES: ThemeConfig[] = [
     playerOpacity: 0.94,
     cardOpacity: 0.70,
     customCss: `/* Aurora Emerald Glow */
-.finamp-active-nav {
+.jellywisp-active-nav {
   box-shadow: inset 0 0 15px rgba(16, 185, 129, 0.25);
 }`,
   },
@@ -182,7 +182,7 @@ export const PRESET_THEMES: ThemeConfig[] = [
   },
 ];
 
-const STORAGE_KEY_THEME = 'finamp_theme_config';
+const STORAGE_KEY_THEME = 'jellywisp_theme_config';
 
 export class ThemeEngine {
   private currentTheme: ThemeConfig;
@@ -206,10 +206,10 @@ export class ThemeEngine {
 
   private ensureStyleTag() {
     if (typeof document === 'undefined') return;
-    let tag = document.getElementById('finamp-custom-styles') as HTMLStyleElement;
+    let tag = document.getElementById('jellywisp-custom-styles') as HTMLStyleElement;
     if (!tag) {
       tag = document.createElement('style');
-      tag.id = 'finamp-custom-styles';
+      tag.id = 'jellywisp-custom-styles';
       document.head.appendChild(tag);
     }
     this.styleElement = tag;
@@ -286,19 +286,19 @@ export class ThemeEngine {
           --fin-text-artist: ${artistNameColor};
           --fin-text-album: ${albumNameColor};
         }
-        .finamp-titlebar {
+        .jellywisp-titlebar {
           background-color: color-mix(in srgb, ${titlebarColor} 94%, transparent) !important;
           backdrop-filter: blur(${t.blurPx}px);
         }
-        .finamp-sidebar {
+        .jellywisp-sidebar {
           background-color: color-mix(in srgb, ${t.sidebarColor} ${Math.round(t.sidebarOpacity * 100)}%, transparent) !important;
           backdrop-filter: blur(${t.blurPx}px);
         }
-        .finamp-player-bar {
+        .jellywisp-player-bar {
           background-color: color-mix(in srgb, ${t.playerColor} ${Math.round(t.playerOpacity * 100)}%, transparent) !important;
           backdrop-filter: blur(${t.blurPx}px);
         }
-        .finamp-card {
+        .jellywisp-card {
           background-color: color-mix(in srgb, ${t.cardColor} ${Math.round(t.cardOpacity * 100)}%, transparent);
           backdrop-filter: blur(${t.blurPx}px);
         }

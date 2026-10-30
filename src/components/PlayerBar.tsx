@@ -303,7 +303,7 @@ export const PlayerBar: React.FC<PlayerBarProps> = ({
         data-position={pos}
         className={`bg-[var(--fin-player)] ${
           pos === 'left' ? 'border-r' : 'border-l'
-        } border-white/10 p-4 flex flex-col justify-between select-none z-30 finamp-player-bar shrink-0 backdrop-blur-[var(--fin-blur)] relative ${
+        } border-white/10 p-4 flex flex-col justify-between select-none z-30 jellywisp-player-bar shrink-0 backdrop-blur-[var(--fin-blur)] relative ${
           isLayoutEditMode ? 'ring-2 ring-cyan-400/70' : ''
         }`}
       >
@@ -643,7 +643,7 @@ export const PlayerBar: React.FC<PlayerBarProps> = ({
       style={{ height: `${barHeight}px` }}
       data-testid="player-dock"
       data-position={pos}
-      className={`w-full max-w-full overflow-hidden bg-[var(--fin-player)] px-2 sm:px-4 flex items-center justify-between select-none z-30 finamp-player-bar shrink-0 relative backdrop-blur-[var(--fin-blur)] ${
+      className={`w-full max-w-full overflow-hidden bg-[var(--fin-player)] px-2 sm:px-4 flex items-center justify-between select-none z-30 jellywisp-player-bar shrink-0 relative backdrop-blur-[var(--fin-blur)] ${
         isFloating
           ? `m-2 sm:m-3 border border-white/15 shadow-2xl ${cornerClass}`
           : pos === 'top'

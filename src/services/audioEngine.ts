@@ -12,7 +12,7 @@ export const DEFAULT_DSP_SETTINGS: DspSettings = {
   pitchSpeed: 1.0,
 };
 
-const STORAGE_KEY_DSP = 'finamp_dsp_settings';
+const STORAGE_KEY_DSP = 'jellywisp_dsp_settings';
 
 export class AudioEngine {
   private audioCtx: AudioContext | null = null;

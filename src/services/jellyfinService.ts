@@ -27,7 +27,7 @@ export const DEFAULT_FRESH_CONFIG: JellyfinServerConfig = {
 export const DEFAULT_DEMO_CONFIG: JellyfinServerConfig = {
   url: 'https://jellyfin.sound-sphere.internal:8096',
   username: 'Audiophile_Demo',
-  token: 'finamp_demo_token_88912',
+  token: 'jellywisp_demo_token_88912',
   userId: 'usr_demo_88192',
   serverName: 'SoundSphere Jellyfin Media Server',
   serverVersion: '10.9.11 (Official Linux x64)',
@@ -41,9 +41,9 @@ export const DEFAULT_DEMO_CONFIG: JellyfinServerConfig = {
   ],
 };
 
-const STORAGE_KEY_SERVER = 'finamp_jellyfin_config';
-const STORAGE_KEY_DEVICE_ID = 'finamp_device_id';
-const STORAGE_KEY_LAST_URL = 'finamp_last_real_url';
+const STORAGE_KEY_SERVER = 'jellywisp_jellyfin_config';
+const STORAGE_KEY_DEVICE_ID = 'jellywisp_device_id';
+const STORAGE_KEY_LAST_URL = 'jellywisp_last_real_url';
 const STORAGE_KEY_ALBUM_RELEASE_TYPES = 'jellywisp_album_release_types_v1';
 
 const FALLBACK_COVER_URL = JELLYWISP_COVER_PLACEHOLDER;
@@ -165,7 +165,7 @@ export class JellyfinService {
     if (savedDevice) {
       this.deviceId = savedDevice;
     } else {
-      this.deviceId = 'finamp-desktop-' + Math.random().toString(36).substring(2, 11);
+      this.deviceId = 'jellywisp-desktop-' + Math.random().toString(36).substring(2, 11);
       localStorage.setItem(STORAGE_KEY_DEVICE_ID, this.deviceId);
     }
 

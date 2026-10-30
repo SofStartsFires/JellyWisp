@@ -24,7 +24,7 @@ const CSS_SNIPPETS = [
   {
     name: 'Neon Glow Edges',
     css: `/* Glowing Cyberpunk Edges */
-.finamp-player-bar, .finamp-card {
+.jellywisp-player-bar, .jellywisp-card {
   box-shadow: 0 0 20px rgba(6, 182, 212, 0.35);
   border: 1px solid rgba(6, 182, 212, 0.5) !important;
 }`,
@@ -32,7 +32,7 @@ const CSS_SNIPPETS = [
   {
     name: 'Audiophile Brass & Walnut Accents',
     css: `/* Audiophile Brass Accent Highlights */
-.finamp-player-bar {
+.jellywisp-player-bar {
   background: linear-gradient(180deg, #181310 0%, #100d0b 100%);
   border-top: 2px solid #f59e0b !important;
 }`,
@@ -40,7 +40,7 @@ const CSS_SNIPPETS = [
   {
     name: 'Frosted Glass Minimalist',
     css: `/* Nordic Frosted Glass Blur */
-.finamp-sidebar, .finamp-player-bar {
+.jellywisp-sidebar, .jellywisp-player-bar {
   backdrop-filter: blur(30px) saturate(180%) !important;
   background-color: rgba(15, 23, 42, 0.65) !important;
 }`,
@@ -451,9 +451,9 @@ export const ThemeEditorView: React.FC<ThemeEditorViewProps> = ({
         </div>
 
         <p className="text-xs text-slate-400">
-          Write custom CSS selectors targeting <code className="text-cyan-300">.finamp-player-bar</code>,{' '}
-          <code className="text-cyan-300">.finamp-sidebar</code>, or{' '}
-          <code className="text-cyan-300">.finamp-card</code>. Edits apply immediately to the page.
+          Write custom CSS selectors targeting <code className="text-cyan-300">.jellywisp-player-bar</code>,{' '}
+          <code className="text-cyan-300">.jellywisp-sidebar</code>, or{' '}
+          <code className="text-cyan-300">.jellywisp-card</code>. Edits apply immediately to the page.
         </p>
 
         <textarea
