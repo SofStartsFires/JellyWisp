@@ -82,9 +82,9 @@ export const SearchBarSection: React.FC<SearchBarSectionProps> = ({
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(0);
 
-  const maxWidthPx = layoutConfig?.searchBarMaxWidthPx ?? 860;
-  const heightPx = layoutConfig?.searchBarHeightPx ?? 46;
-  const fontSizePx = layoutConfig?.searchBarFontSizePx ?? 15;
+  const maxWidthPx = layoutConfig?.searchBarMaxWidthPx ?? 680;
+  const heightPx = layoutConfig?.searchBarHeightPx ?? 44;
+  const fontSizePx = layoutConfig?.searchBarFontSizePx ?? 14;
   const pos = layoutConfig?.searchBarPosition || 'titlebar';
   const isLocked = layoutConfig?.layoutLocked ?? true;
 
@@ -208,7 +208,7 @@ export const SearchBarSection: React.FC<SearchBarSectionProps> = ({
       }}
       data-testid="search-bar-section"
       data-position={pos}
-      className={`relative flex-1 min-w-0 w-full transition-all duration-200 ${
+      className={`no-drag relative flex-1 min-w-0 w-full transition-all duration-200 ${
         isHeroDeck ? 'mx-auto py-2 px-4' : 'mx-2 sm:mx-4'
       }`}
     >
@@ -835,13 +835,53 @@ export const Titlebar: React.FC<TitlebarProps> = ({
     }
   };
 
+  const startWindowDragFallback = (e: React.MouseEvent) => {
+    if (e.button !== 0) return;
+    const target = e.target as HTMLElement;
+    if (
+      target.closest('button, input, select, textarea, a, [role="button"], .no-drag')
+    ) {
+      return;
+    }
+    const desktop = (window as any).jellywispDesktop;
+    if (!desktop?.moveWindowBy) return;
+
+    let lastScreenX = e.screenX;
+    let lastScreenY = e.screenY;
+
+    const onMove = (ev: MouseEvent) => {
+      const dx = ev.screenX - lastScreenX;
+      const dy = ev.screenY - lastScreenY;
+      if (dx !== 0 || dy !== 0) {
+        lastScreenX = ev.screenX;
+        lastScreenY = ev.screenY;
+        desktop.moveWindowBy(dx, dy);
+      }
+    };
+
+    const onUp = () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  };
+
   const isLocked = layoutConfig?.layoutLocked ?? true;
   const isMacTitlebar = layoutConfig?.titlebarStyle === 'mac';
 
   return (
     <header
       style={{ height: `${titlebarHeight}px` }}
-      className={`jellywisp-titlebar border-b border-white/10 flex items-center justify-between px-4 shrink-0 select-none backdrop-blur-md z-30 relative ${
+      onMouseDown={startWindowDragFallback}
+      onDoubleClick={(e) => {
+        const target = e.target as HTMLElement;
+        if (!target.closest('button, input, select, textarea, a, [role="button"], .no-drag')) {
+          handleMaximizeWindow();
+        }
+      }}
+      className={`jellywisp-titlebar window-drag-region border-b border-white/10 flex items-center justify-between px-4 shrink-0 select-none backdrop-blur-md z-30 relative ${
         layoutConfig?.swapTitlebarSides ? 'flex-row-reverse' : 'flex-row'
       }`}
     >
@@ -920,39 +960,46 @@ export const Titlebar: React.FC<TitlebarProps> = ({
             <span className="text-[10px] text-slate-500 font-mono">{serverConfig.pingMs}ms</span>
           </button>
         )}
+        {/* Dedicated Window Drag Grip Handle */}
+        <div
+          title="Drag anywhere on the titlebar or this grip to move window • Double-click to maximize"
+          className="window-drag-region hidden md:flex items-center gap-1 px-2 py-1 rounded-lg text-slate-500 hover:text-slate-300 cursor-move select-none"
+        >
+          <GripVertical className="w-3.5 h-3.5 opacity-60" />
+        </div>
       </div>
 
       {/* Center: Prominent Power Search Bar (when docked in titlebar) */}
-      {showSearchInTitlebar ? (
-        <SearchBarSection
-          searchQuery={searchQuery}
-          onSearchChange={onSearchChange}
-          artists={artists}
-          albumArtists={albumArtists}
-          albums={albums}
-          tracks={tracks}
-          onNavigateToArtist={onNavigateToArtist}
-          onNavigateToAlbumArtist={onNavigateToAlbumArtist}
-          onNavigateToAlbum={onNavigateToAlbum}
-          onPlayTrack={onPlayTrack}
-          onContextMenuArtist={onContextMenuArtist}
-          onContextMenuAlbum={onContextMenuAlbum}
-          onContextMenuTrack={onContextMenuTrack}
-          layoutConfig={layoutConfig}
-          onUpdateLayout={onUpdateLayout}
-          onDragStartSection={onDragStartSection}
-          onDragEndSection={onDragEndSection}
-        />
-      ) : (
-        <div className="flex-1 flex items-center justify-center">
+      <div className="window-drag-region flex-1 flex items-center justify-center min-w-0">
+        {showSearchInTitlebar ? (
+          <SearchBarSection
+            searchQuery={searchQuery}
+            onSearchChange={onSearchChange}
+            artists={artists}
+            albumArtists={albumArtists}
+            albums={albums}
+            tracks={tracks}
+            onNavigateToArtist={onNavigateToArtist}
+            onNavigateToAlbumArtist={onNavigateToAlbumArtist}
+            onNavigateToAlbum={onNavigateToAlbum}
+            onPlayTrack={onPlayTrack}
+            onContextMenuArtist={onContextMenuArtist}
+            onContextMenuAlbum={onContextMenuAlbum}
+            onContextMenuTrack={onContextMenuTrack}
+            layoutConfig={layoutConfig}
+            onUpdateLayout={onUpdateLayout}
+            onDragStartSection={onDragStartSection}
+            onDragEndSection={onDragEndSection}
+          />
+        ) : (
           <button
             onClick={() => onUpdateLayout?.({ searchBarPosition: 'titlebar' })}
-            className="text-[11px] font-mono text-slate-400 hover:text-cyan-300 px-3 py-1 rounded-lg bg-white/5 border border-white/5 transition"
+            className="no-drag text-[11px] font-mono text-slate-400 hover:text-cyan-300 px-3 py-1 rounded-lg bg-white/5 border border-white/5 transition"
           >
             Search Docked to {layoutConfig?.searchBarPosition === 'hero-top' ? 'Hero Deck' : 'Bottom Deck'} (Click to return to Titlebar)
           </button>
-        </div>
-      )}
+        )}
+      </div>
 
       {/* Right: Drag & Drop Layout Mode + Audio Quality Specs + Dedicated Settings Button */}
       <div className="flex items-center gap-2 shrink-0">

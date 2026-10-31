@@ -9,6 +9,49 @@ export interface ArtistComputedStats {
 }
 
 /**
+ * Normalizes a title or artist name for musical alphabetical sorting (SortName style):
+ * strips leading articles ("The ", "A ", "An ") so "The Weeknd" sorts under W ("weeknd")
+ * instead of clustering at the top or appearing in arbitrary database scan order.
+ */
+export function normalizeSortName(raw: string | undefined | null): string {
+  const clean = (raw || '').trim();
+  if (!clean) return 'zzzz';
+  return clean
+    .replace(/^(the|a|an)\s+/i, '')
+    .trim()
+    .toLowerCase();
+}
+
+export function compareSortableStrings(a: string | undefined | null, b: string | undefined | null): number {
+  const sa = normalizeSortName(a);
+  const sb = normalizeSortName(b);
+  if (sa !== sb) return sa.localeCompare(sb, undefined, { numeric: true, sensitivity: 'base' });
+  return (a || '').localeCompare(b || '', undefined, { numeric: true, sensitivity: 'base' });
+}
+
+export function sortArtistsDefault(artists: Artist[]): Artist[] {
+  return [...artists].sort((a, b) => compareSortableStrings(a.name, b.name));
+}
+
+export function sortAlbumsDefault(albums: Album[]): Album[] {
+  return [...albums].sort(
+    (a, b) =>
+      compareSortableStrings(a.title, b.title) ||
+      compareSortableStrings(a.artist, b.artist) ||
+      (a.year || 0) - (b.year || 0)
+  );
+}
+
+export function sortTracksDefault(tracks: Track[]): Track[] {
+  return [...tracks].sort(
+    (a, b) =>
+      compareSortableStrings(a.albumArtist || a.artist, b.albumArtist || b.artist) ||
+      compareSortableStrings(a.album, b.album) ||
+      compareSortableStrings(a.title, b.title)
+  );
+}
+
+/**
  * Computes accurate album counts, track counts, and resolved cover art for all artists
  * by cross-referencing the library's `albums` and `tracks` arrays instead of relying on
  * unpopulated `artist.albums` arrays or `trackCount / 10` estimates.
@@ -130,7 +173,6 @@ export function computeMissingArtworkItems(
   const seenArtists = new Set<string>();
   const missingArtists: Artist[] = [];
 
-  // Include both explicit artists and any track/album artists that lack cover art
   const allCandidateArtists: Artist[] = [...artists];
   const existingNames = new Set(artists.map((a) => a.name.trim().toLowerCase()));
 
@@ -177,7 +219,7 @@ export function computeMissingArtworkItems(
     }
   }
 
-  missingArtists.sort((a, b) => a.name.localeCompare(b.name));
+  missingArtists.sort((a, b) => compareSortableStrings(a.name, b.name));
 
   const seenAlbums = new Set<string>();
   const missingAlbums: Album[] = [];
@@ -190,7 +232,35 @@ export function computeMissingArtworkItems(
     }
   }
 
-  missingAlbums.sort((a, b) => a.artist.localeCompare(b.artist) || a.title.localeCompare(b.title));
+  // Also check albums referenced on tracks that might not be in `albums` array yet
+  for (const t of tracks) {
+    if (!t.album) continue;
+    const key = `${(t.albumArtist || t.artist || '').trim().toLowerCase()}::${t.album.trim().toLowerCase()}`;
+    if (seenAlbums.has(key)) continue;
+    const existingAlb = albums.find(
+      (a) => a.title.trim().toLowerCase() === t.album.trim().toLowerCase()
+    );
+    if (!existingAlb && isPlaceholderArt(t.coverUrl)) {
+      seenAlbums.add(key);
+      missingAlbums.push({
+        id: t.albumId || `alb-${t.id}`,
+        title: t.album,
+        artist: t.albumArtist || t.artist,
+        year: t.year || 2020,
+        coverUrl: t.coverUrl,
+        genre: t.genre || 'Music',
+        tracks: [t],
+        trackCount: 1,
+        totalDuration: t.duration,
+        isHiRes: true,
+        hiresBadge: t.codec,
+      });
+    }
+  }
+
+  missingAlbums.sort(
+    (a, b) => compareSortableStrings(a.artist, b.artist) || compareSortableStrings(a.title, b.title)
+  );
 
   return { missingArtists, missingAlbums };
 }
@@ -212,7 +282,8 @@ export interface GlobalSearchResults {
 
 /**
  * Searches globally across Artists, Album Artists, Albums, and Tracks regardless of the active tab.
- * Also resolves `directMatch` so pressing Enter immediately jumps to the single/exact match.
+ * Also synthesizes any matching albums/artists referenced on tracks so searching for an album
+ * while on Track View (or before all endpoints finish streaming) ALWAYS finds the album.
  */
 export function searchGlobalLibrary(
   rawQuery: string,
@@ -236,65 +307,134 @@ export function searchGlobalLibrary(
     };
   }
 
-  const matchedArtists = library.artists.filter(
-    (a) =>
+  const matchedArtistsMap = new Map<string, Artist>();
+  for (const a of library.artists) {
+    if (
       a.name.toLowerCase().includes(q) ||
       (a.genres || []).some((g) => g.toLowerCase().includes(q))
-  );
+    ) {
+      matchedArtistsMap.set(a.name.trim().toLowerCase(), a);
+    }
+  }
 
-  const matchedAlbumArtists = library.albumArtists.filter(
-    (a) =>
+  const matchedAlbumArtistsMap = new Map<string, Artist>();
+  for (const a of library.albumArtists) {
+    if (
       a.name.toLowerCase().includes(q) ||
       (a.genres || []).some((g) => g.toLowerCase().includes(q))
-  );
+    ) {
+      matchedAlbumArtistsMap.set(a.name.trim().toLowerCase(), a);
+    }
+  }
 
-  const matchedAlbums = library.albums.filter(
-    (alb) =>
+  const matchedAlbumsMap = new Map<string, Album>();
+  for (const alb of library.albums) {
+    if (
       alb.title.toLowerCase().includes(q) ||
       alb.artist.toLowerCase().includes(q) ||
       (alb.genre || '').toLowerCase().includes(q)
-  );
+    ) {
+      const key = `${alb.title.trim().toLowerCase()}::${alb.artist.trim().toLowerCase()}`;
+      matchedAlbumsMap.set(key, alb);
+    }
+  }
 
-  const matchedTracks = library.tracks.filter(
-    (t) =>
-      t.title.toLowerCase().includes(q) ||
-      t.artist.toLowerCase().includes(q) ||
-      (t.albumArtist || '').toLowerCase().includes(q) ||
-      t.album.toLowerCase().includes(q) ||
-      (t.genre || '').toLowerCase().includes(q)
-  );
+  const matchedTracks: Track[] = [];
+  for (const t of library.tracks) {
+    const titleMatch = t.title.toLowerCase().includes(q);
+    const artistMatch = t.artist.toLowerCase().includes(q);
+    const albumArtistMatch = (t.albumArtist || '').toLowerCase().includes(q);
+    const albumMatch = (t.album || '').toLowerCase().includes(q);
+    const genreMatch = (t.genre || '').toLowerCase().includes(q);
+
+    if (titleMatch || artistMatch || albumArtistMatch || albumMatch || genreMatch) {
+      matchedTracks.push(t);
+    }
+
+    // Ensure any album referenced on a track is also discoverable as an Album in Global Search
+    if ((albumMatch || artistMatch || albumArtistMatch) && t.album) {
+      const albArtist = (t.albumArtist || t.artist || 'Unknown Artist').trim();
+      const key = `${t.album.trim().toLowerCase()}::${albArtist.toLowerCase()}`;
+      if (!matchedAlbumsMap.has(key)) {
+        // Also check if another album with same title already exists in matchedAlbumsMap
+        const hasTitleAlready = Array.from(matchedAlbumsMap.values()).some(
+          (existing) => existing.title.trim().toLowerCase() === t.album.trim().toLowerCase()
+        );
+        if (!hasTitleAlready) {
+          matchedAlbumsMap.set(key, {
+            id: t.albumId || `alb-${t.id}`,
+            title: t.album,
+            artist: albArtist,
+            year: t.year || 2020,
+            coverUrl: t.coverUrl || JELLYWISP_COVER_PLACEHOLDER,
+            genre: t.genre || 'Music',
+            tracks: [t],
+            trackCount: 1,
+            totalDuration: t.duration,
+            isHiRes: true,
+            hiresBadge: t.codec,
+          });
+        }
+      }
+    }
+
+    // Ensure any artist referenced on a track is also discoverable as an Artist in Global Search
+    if (artistMatch && t.artist) {
+      const artKey = t.artist.trim().toLowerCase();
+      if (!matchedArtistsMap.has(artKey)) {
+        matchedArtistsMap.set(artKey, {
+          id: `art-${artKey}`,
+          name: t.artist.trim(),
+          bio: '',
+          coverUrl: t.coverUrl || JELLYWISP_COVER_PLACEHOLDER,
+          albums: [],
+          trackCount: 1,
+          genres: t.genre ? [t.genre] : [],
+        });
+      }
+    }
+  }
+
+  const matchedArtists = Array.from(matchedArtistsMap.values());
+  const matchedAlbumArtists = Array.from(matchedAlbumArtistsMap.values());
+  const matchedAlbums = Array.from(matchedAlbumsMap.values());
 
   // Sort exact & prefix matches to the top of each category
   const rankText = (text: string) => {
     const lower = (text || '').trim().toLowerCase();
-    if (lower === q) return 0;
-    if (lower.startsWith(q)) return 1;
+    const sortNorm = normalizeSortName(text);
+    if (lower === q || sortNorm === q) return 0;
+    if (lower.startsWith(q) || sortNorm.startsWith(q)) return 1;
     return 2;
   };
 
   matchedArtists.sort(
-    (a, b) => rankText(a.name) - rankText(b.name) || a.name.localeCompare(b.name)
+    (a, b) => rankText(a.name) - rankText(b.name) || compareSortableStrings(a.name, b.name)
   );
   matchedAlbumArtists.sort(
-    (a, b) => rankText(a.name) - rankText(b.name) || a.name.localeCompare(b.name)
+    (a, b) => rankText(a.name) - rankText(b.name) || compareSortableStrings(a.name, b.name)
   );
   matchedAlbums.sort(
-    (a, b) => rankText(a.title) - rankText(b.title) || a.title.localeCompare(b.title)
+    (a, b) => rankText(a.title) - rankText(b.title) || compareSortableStrings(a.title, b.title)
   );
   matchedTracks.sort(
-    (a, b) => rankText(a.title) - rankText(b.title) || a.title.localeCompare(b.title)
+    (a, b) => rankText(a.title) - rankText(b.title) || compareSortableStrings(a.title, b.title)
   );
 
-  // Determine direct match for Enter key navigation:
-  // 1. Exact name/title match priority: Artist -> Album Artist -> Album -> Track
-  // 2. Or if only one unique entity matches across categories
-  // 3. Or top-ranked match if the user presses Enter
   let directMatch: GlobalSearchTarget | null = null;
 
-  const exactArtist = matchedArtists.find((a) => a.name.trim().toLowerCase() === q);
-  const exactAlbumArtist = matchedAlbumArtists.find((a) => a.name.trim().toLowerCase() === q);
-  const exactAlbum = matchedAlbums.find((alb) => alb.title.trim().toLowerCase() === q);
-  const exactTrack = matchedTracks.find((t) => t.title.trim().toLowerCase() === q);
+  const exactArtist = matchedArtists.find(
+    (a) => a.name.trim().toLowerCase() === q || normalizeSortName(a.name) === q
+  );
+  const exactAlbumArtist = matchedAlbumArtists.find(
+    (a) => a.name.trim().toLowerCase() === q || normalizeSortName(a.name) === q
+  );
+  const exactAlbum = matchedAlbums.find(
+    (alb) => alb.title.trim().toLowerCase() === q || normalizeSortName(alb.title) === q
+  );
+  const exactTrack = matchedTracks.find(
+    (t) => t.title.trim().toLowerCase() === q || normalizeSortName(t.title) === q
+  );
 
   if (exactArtist) {
     directMatch = { type: 'artist', artist: exactArtist };
@@ -319,7 +459,6 @@ export function searchGlobalLibrary(
         (t.albumArtist || '').toLowerCase() === matchedArtists[0].name.toLowerCase()
     )
   ) {
-    // All matching albums/tracks belong to this single matching artist!
     directMatch = { type: 'artist', artist: matchedArtists[0] };
   } else if (
     matchedAlbumArtists.length === 1 &&
@@ -333,7 +472,6 @@ export function searchGlobalLibrary(
     matchedAlbumArtists.length === 0 &&
     matchedTracks.every((t) => t.album.toLowerCase() === matchedAlbums[0].title.toLowerCase())
   ) {
-    // All matching tracks belong to this single matching album!
     directMatch = { type: 'album', album: matchedAlbums[0] };
   } else if (
     matchedTracks.length === 1 &&
@@ -342,6 +480,9 @@ export function searchGlobalLibrary(
     matchedAlbums.length === 0
   ) {
     directMatch = { type: 'track', track: matchedTracks[0] };
+  } else if (matchedAlbums.length > 0 && matchedAlbums[0].title.toLowerCase().includes(q)) {
+    // If an album title directly matches the query, prioritize the album
+    directMatch = { type: 'album', album: matchedAlbums[0] };
   } else if (matchedArtists.length > 0) {
     directMatch = { type: 'artist', artist: matchedArtists[0] };
   } else if (matchedAlbumArtists.length > 0) {

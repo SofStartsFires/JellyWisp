@@ -61,7 +61,13 @@ import {
   saveTrackFavoriteOverride,
   saveTrackMetadataOverride,
   saveArtworkOverride,
+  applyLocalLibraryOverrides,
 } from './services/jellyfinService.ts';
+import {
+  buildServerCacheKey,
+  loadCachedLibrarySnapshot,
+  saveCachedLibrarySnapshot,
+} from './services/libraryCacheService.ts';
 import { themeEngine } from './services/themeEngine.ts';
 import { hotkeyService } from './services/hotkeyService.ts';
 import { layoutEngine, WORKSPACE_PRESETS } from './services/layoutEngine.ts';
@@ -197,37 +203,99 @@ export default function App() {
     artists: Artist[];
   } | null>(null);
 
-  // Fetch music data from active Jellyfin server or Demo library (with progressive 80k+ streaming)
+  // Fetch music data from active Jellyfin server or Demo library (with instant local cache hydration + progressive 80k+ streaming)
   const loadLibrary = useCallback(async () => {
+    const activeCfg = jellyfin.reloadFromStorage();
+    setServerConfig(activeCfg);
     setIsSyncingLibrary(true);
     setLibrarySyncError(null);
+
+    const serverKey = buildServerCacheKey(
+      activeCfg.url,
+      activeCfg.userId,
+      activeCfg.selectedLibraryId
+    );
+
+    let hydratedFromCache = false;
+    if (!activeCfg.isDemoMode && activeCfg.url && activeCfg.userId) {
+      const cached = await loadCachedLibrarySnapshot(serverKey);
+      if (cached && cached.tracks.length > 0) {
+        hydratedFromCache = true;
+        const overriddenCache = applyLocalLibraryOverrides(
+          cached.tracks,
+          cached.albums,
+          cached.artists
+        );
+        setTracks(overriddenCache.tracks);
+        setAlbums(overriddenCache.albums);
+        setArtists(overriddenCache.artists);
+        if (cached.syncProgress) {
+          setSyncProgress(cached.syncProgress);
+        }
+        setQueue(overriddenCache.tracks.slice(0, 250));
+        setCurrentTrack((prev) => {
+          if (prev) return prev;
+          const savedId = loadSavedPlayerState().currentTrackId;
+          const restored = savedId
+            ? overriddenCache.tracks.find((t) => t.id === savedId)
+            : null;
+          const initial = restored || overriddenCache.tracks[0] || null;
+          audioEngine.setInitialTrack(initial);
+          return initial;
+        });
+      }
+    }
 
     const data = await jellyfin.fetchMusicData((partial, prog) => {
       setTracks(partial.tracks);
       setAlbums(partial.albums);
       setArtists(partial.artists);
       setSyncProgress(prog);
+      if (!activeCfg.isDemoMode) {
+        saveCachedLibrarySnapshot({
+          serverKey,
+          tracks: partial.tracks,
+          albums: partial.albums,
+          artists: partial.artists,
+          syncProgress: prog,
+          updatedAt: Date.now(),
+        });
+      }
     });
 
     setIsSyncingLibrary(false);
+    setServerConfig(jellyfin.getConfig());
 
     if (data.authExpired) {
-      setServerConfig(jellyfin.getConfig());
       setIsServerModalOpen(true);
     }
 
     if (data.error) {
       setLibrarySyncError(data.error);
+      // If we already hydrated from local cache, keep the cached library available while offline/reconnecting
+      if (hydratedFromCache && data.tracks.length === 0) {
+        return;
+      }
     }
 
     if (data.progress) {
       setSyncProgress(data.progress);
     }
 
+    if (!activeCfg.isDemoMode && data.tracks.length > 0) {
+      saveCachedLibrarySnapshot({
+        serverKey,
+        tracks: data.tracks,
+        albums: data.albums,
+        artists: data.artists,
+        syncProgress: data.progress,
+        updatedAt: Date.now(),
+      });
+    }
+
     setTracks(data.tracks);
     setAlbums(data.albums);
     setArtists(data.artists);
-    // Keep queue lightweight (first 250 tracks) instead of cloning 80,000 items
     setQueue(data.tracks.slice(0, 250));
     setCurrentTrack((prev) => {
       if (data.tracks.length === 0) {
@@ -847,6 +915,62 @@ export default function App() {
     });
   }, [albums, tracks, artists]);
 
+  const filteredAlbums = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return albums;
+
+    const seen = new Set<string>();
+    const local: Album[] = [];
+
+    for (const a of albums) {
+      if (
+        a.title.toLowerCase().includes(q) ||
+        a.artist.toLowerCase().includes(q) ||
+        (a.genre || '').toLowerCase().includes(q)
+      ) {
+        seen.add(a.id);
+        local.push(a);
+      }
+    }
+
+    if (serverSearchResults?.albums?.length) {
+      for (const sa of serverSearchResults.albums) {
+        if (!seen.has(sa.id)) {
+          local.push(sa);
+          seen.add(sa.id);
+        }
+      }
+    }
+
+    // Also synthesize any matching albums referenced directly on tracks
+    for (const t of tracks) {
+      if (t.album && (t.album.toLowerCase().includes(q) || t.artist.toLowerCase().includes(q))) {
+        const alreadyHasTitle = local.some(
+          (a) => a.title.trim().toLowerCase() === t.album.trim().toLowerCase()
+        );
+        if (!alreadyHasTitle) {
+          const albId = t.albumId || `alb-${t.id}`;
+          seen.add(albId);
+          local.push({
+            id: albId,
+            title: t.album,
+            artist: t.albumArtist || t.artist,
+            year: t.year,
+            genre: t.genre,
+            coverUrl: t.coverUrl,
+            tracks: [t],
+            trackCount: 1,
+            totalDuration: t.duration,
+            isHiRes: true,
+            hiresBadge: t.codec,
+          });
+        }
+      }
+    }
+
+    return local;
+  }, [albums, tracks, searchQuery, serverSearchResults]);
+
   // Memoized filtering so playback timeupdate never re-filters 80,000 tracks
   const filteredTracks = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
@@ -861,8 +985,9 @@ export default function App() {
         t.genre.toLowerCase().includes(q)
     );
 
+    const seen = new Set(local.map((t) => t.id));
+
     if (serverSearchResults?.tracks?.length) {
-      const seen = new Set(local.map((t) => t.id));
       for (const st of serverSearchResults.tracks) {
         if (!seen.has(st.id)) {
           local.push(st);
@@ -870,36 +995,24 @@ export default function App() {
         }
       }
     }
+
+    // Also include embedded tracks from any matching albums
+    for (const alb of filteredAlbums) {
+      for (const at of alb.tracks || []) {
+        if (!seen.has(at.id)) {
+          local.push(at);
+          seen.add(at.id);
+        }
+      }
+    }
+
     return local;
-  }, [tracks, searchQuery, serverSearchResults]);
+  }, [tracks, filteredAlbums, searchQuery, serverSearchResults]);
 
   const favoriteTracks = useMemo(
     () => filteredTracks.filter((t) => t.isFavorite),
     [filteredTracks]
   );
-
-  const filteredAlbums = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase();
-    if (!q) return albums;
-
-    const local = albums.filter(
-      (a) =>
-        a.title.toLowerCase().includes(q) ||
-        a.artist.toLowerCase().includes(q) ||
-        a.genre.toLowerCase().includes(q)
-    );
-
-    if (serverSearchResults?.albums?.length) {
-      const seen = new Set(local.map((a) => a.id));
-      for (const sa of serverSearchResults.albums) {
-        if (!seen.has(sa.id)) {
-          local.push(sa);
-          seen.add(sa.id);
-        }
-      }
-    }
-    return local;
-  }, [albums, searchQuery, serverSearchResults]);
 
   const filteredArtists = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
@@ -932,6 +1045,25 @@ export default function App() {
         (a.genres || []).some((g) => g.toLowerCase().includes(q))
     );
   }, [albumArtists, searchQuery]);
+
+  // Merged library collections for the Global Search Dropdown (includes live server search results)
+  const globalSearchAlbums = useMemo(() => {
+    if (!serverSearchResults?.albums?.length) return albums;
+    const seen = new Set(albums.map((a) => a.id));
+    return [...albums, ...serverSearchResults.albums.filter((a) => !seen.has(a.id))];
+  }, [albums, serverSearchResults]);
+
+  const globalSearchArtists = useMemo(() => {
+    if (!serverSearchResults?.artists?.length) return artists;
+    const seen = new Set(artists.map((a) => a.id));
+    return [...artists, ...serverSearchResults.artists.filter((a) => !seen.has(a.id))];
+  }, [artists, serverSearchResults]);
+
+  const globalSearchTracks = useMemo(() => {
+    if (!serverSearchResults?.tracks?.length) return tracks;
+    const seen = new Set(tracks.map((t) => t.id));
+    return [...tracks, ...serverSearchResults.tracks.filter((t) => !seen.has(t.id))];
+  }, [tracks, serverSearchResults]);
 
   useEffect(() => {
     const handleEsc = (e: KeyboardEvent) => {
@@ -1125,10 +1257,10 @@ export default function App() {
         currentTrack={currentTrack}
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
-        artists={artists}
+        artists={globalSearchArtists}
         albumArtists={albumArtists}
-        albums={albums}
-        tracks={tracks}
+        albums={globalSearchAlbums}
+        tracks={globalSearchTracks}
         onNavigateToArtist={handleNavigateToArtist}
         onNavigateToAlbumArtist={handleNavigateToAlbumArtist}
         onNavigateToAlbum={handleNavigateToAlbum}
@@ -1290,10 +1422,10 @@ export default function App() {
           <SearchBarSection
             searchQuery={searchQuery}
             onSearchChange={setSearchQuery}
-            artists={artists}
+            artists={globalSearchArtists}
             albumArtists={albumArtists}
-            albums={albums}
-            tracks={tracks}
+            albums={globalSearchAlbums}
+            tracks={globalSearchTracks}
             onNavigateToArtist={handleNavigateToArtist}
             onNavigateToAlbumArtist={handleNavigateToAlbumArtist}
             onNavigateToAlbum={handleNavigateToAlbum}
@@ -1400,6 +1532,9 @@ export default function App() {
           {currentView === 'tracks' && (
             <TrackListView
               tracks={filteredTracks}
+              searchQuery={searchQuery}
+              matchedAlbums={filteredAlbums}
+              matchedArtists={filteredArtists}
               totalTrackCount={syncProgress?.totalTracks}
               syncProgress={syncProgress}
               currentTrack={currentTrack}
@@ -1750,10 +1885,10 @@ export default function App() {
           <SearchBarSection
             searchQuery={searchQuery}
             onSearchChange={setSearchQuery}
-            artists={artists}
+            artists={globalSearchArtists}
             albumArtists={albumArtists}
-            albums={albums}
-            tracks={tracks}
+            albums={globalSearchAlbums}
+            tracks={globalSearchTracks}
             onNavigateToArtist={handleNavigateToArtist}
             onNavigateToAlbumArtist={handleNavigateToAlbumArtist}
             onNavigateToAlbum={handleNavigateToAlbum}

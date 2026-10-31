@@ -30,6 +30,7 @@ import {
   getAlbumReleaseTypeOverride,
 } from '../services/jellyfinService.ts';
 import { resolveCoverArt, handleCoverImgError } from '../utils/jellywispArtwork.ts';
+import { compareSortableStrings, sortAlbumsDefault } from '../utils/libraryHelpers.ts';
 
 interface AlbumGridViewProps {
   albums: Album[];
@@ -312,22 +313,25 @@ export const AlbumGridView: React.FC<AlbumGridViewProps> = ({
       list = list.filter((a) => (a.genre || '').toLowerCase().includes(gLower));
     }
 
-    if (sortBy === 'default') return list;
+    if (sortBy === 'default') return sortAlbumsDefault(list);
 
     const copy = [...list];
     copy.sort((a, b) => {
-      if (sortBy === 'title-asc') return a.title.localeCompare(b.title);
-      if (sortBy === 'title-desc') return b.title.localeCompare(a.title);
+      if (sortBy === 'title-asc') return compareSortableStrings(a.title, b.title);
+      if (sortBy === 'title-desc') return compareSortableStrings(b.title, a.title);
       if (sortBy === 'artist-asc')
-        return a.artist.localeCompare(b.artist) || (b.year || 0) - (a.year || 0);
+        return compareSortableStrings(a.artist, b.artist) || (b.year || 0) - (a.year || 0);
       if (sortBy === 'artist-desc')
-        return b.artist.localeCompare(a.artist) || (b.year || 0) - (a.year || 0);
+        return compareSortableStrings(b.artist, a.artist) || (b.year || 0) - (a.year || 0);
       if (sortBy === 'year-desc')
-        return (b.year || 0) - (a.year || 0) || a.title.localeCompare(b.title);
+        return (b.year || 0) - (a.year || 0) || compareSortableStrings(a.title, b.title);
       if (sortBy === 'year-asc')
-        return (a.year || 0) - (b.year || 0) || a.title.localeCompare(b.title);
+        return (a.year || 0) - (b.year || 0) || compareSortableStrings(a.title, b.title);
       if (sortBy === 'genre-asc')
-        return (a.genre || '').localeCompare(b.genre || '') || a.artist.localeCompare(b.artist);
+        return (
+          compareSortableStrings(a.genre || '', b.genre || '') ||
+          compareSortableStrings(a.artist, b.artist)
+        );
       if (sortBy === 'release-type')
         return (
           getAlbumReleaseType(a).localeCompare(getAlbumReleaseType(b)) ||

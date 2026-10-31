@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   X,
   Search,
@@ -9,11 +9,19 @@ import {
   Loader2,
   AlertCircle,
   Sparkles,
+  Upload,
+  FolderOpen,
+  Download,
 } from 'lucide-react';
 import { metadataService, ArtSearchResult } from '../services/metadataService.ts';
+import { jellyfin } from '../services/jellyfinService.ts';
 import { handleCoverImgError, resolveCoverArt } from '../utils/jellywispArtwork.ts';
 import { Artist, Album, Track } from '../types/index.ts';
-import { computeMissingArtworkItems } from '../utils/libraryHelpers.ts';
+import {
+  computeMissingArtworkItems,
+  sortArtistsDefault,
+  sortAlbumsDefault,
+} from '../utils/libraryHelpers.ts';
 
 export interface ArtApplyTargetOverride {
   artistName?: string;
@@ -54,34 +62,41 @@ export const CoverArtSearchModal: React.FC<CoverArtSearchModalProps> = ({
   const [searchMode, setSearchMode] = useState<'album' | 'artist' | 'all'>(initialMode);
   const [results, setResults] = useState<ArtSearchResult[]>([]);
   const [isSearching, setIsSearching] = useState(false);
+  const [isSavingLocal, setIsSavingLocal] = useState(false);
   const [selectedUrl, setSelectedUrl] = useState<string | null>(null);
   const [customDirectUrl, setCustomDirectUrl] = useState('');
   const [missingTab, setMissingTab] = useState<'artists' | 'albums'>('artists');
+  const [showAllLibraryItems, setShowAllLibraryItems] = useState(false);
   const [missingFilter, setMissingFilter] = useState('');
   const [activeTargetOverride, setActiveTargetOverride] = useState<ArtApplyTargetOverride | null>(
     null
   );
   const [activeTargetLabel, setActiveTargetLabel] = useState<string | undefined>(targetLabel);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const [isDraggingFile, setIsDraggingFile] = useState(false);
+
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const { missingArtists, missingAlbums } = useMemo(
     () => computeMissingArtworkItems(artists, albums, tracks),
     [artists, albums, tracks]
   );
 
-  const filteredMissingArtists = useMemo(() => {
+  const displayedArtists = useMemo(() => {
+    const source = showAllLibraryItems ? sortArtistsDefault(artists) : missingArtists;
     const q = missingFilter.trim().toLowerCase();
-    if (!q) return missingArtists;
-    return missingArtists.filter((a) => a.name.toLowerCase().includes(q));
-  }, [missingArtists, missingFilter]);
+    if (!q) return source;
+    return source.filter((a) => a.name.toLowerCase().includes(q));
+  }, [showAllLibraryItems, artists, missingArtists, missingFilter]);
 
-  const filteredMissingAlbums = useMemo(() => {
+  const displayedAlbums = useMemo(() => {
+    const source = showAllLibraryItems ? sortAlbumsDefault(albums) : missingAlbums;
     const q = missingFilter.trim().toLowerCase();
-    if (!q) return missingAlbums;
-    return missingAlbums.filter(
+    if (!q) return source;
+    return source.filter(
       (a) => a.title.toLowerCase().includes(q) || a.artist.toLowerCase().includes(q)
     );
-  }, [missingAlbums, missingFilter]);
+  }, [showAllLibraryItems, albums, missingAlbums, missingFilter]);
 
   const runSearch = async (searchQ: string, mode: 'album' | 'artist' | 'all') => {
     const clean = searchQ.trim();
@@ -117,8 +132,27 @@ export const CoverArtSearchModal: React.FC<CoverArtSearchModalProps> = ({
         setSearchMode(initialMode);
         runSearch(cleanQuery, initialMode);
       } else if (missingArtists.length > 0) {
-        // Automatically select the first artist missing artwork so user can start right away
         const firstArtist = missingArtists[0];
+        setActiveTargetOverride({ artistName: firstArtist.name });
+        setActiveTargetLabel(firstArtist.name);
+        setQuery(firstArtist.name);
+        setSearchMode('artist');
+        runSearch(firstArtist.name, 'artist');
+      } else if (missingAlbums.length > 0) {
+        const firstAlbum = missingAlbums[0];
+        const searchStr = `${firstAlbum.artist} ${firstAlbum.title}`.trim();
+        setActiveTargetOverride({
+          albumId: firstAlbum.id,
+          albumTitle: firstAlbum.title,
+          artistName: firstAlbum.artist,
+        });
+        setActiveTargetLabel(`${firstAlbum.title} — ${firstAlbum.artist}`);
+        setMissingTab('albums');
+        setQuery(searchStr);
+        setSearchMode('album');
+        runSearch(searchStr, 'album');
+      } else if (artists.length > 0) {
+        const firstArtist = artists[0];
         setActiveTargetOverride({ artistName: firstArtist.name });
         setActiveTargetLabel(firstArtist.name);
         setQuery(firstArtist.name);
@@ -161,85 +195,221 @@ export const CoverArtSearchModal: React.FC<CoverArtSearchModalProps> = ({
     runSearch(searchStr, 'album');
   };
 
-  const handleApplyArt = (urlToApply: string, scope: 'artist' | 'track-album') => {
+  const handleApplyArt = async (
+    urlToApply: string,
+    scope: 'artist' | 'track-album',
+    saveToDiskFolder = true
+  ) => {
     if (!urlToApply) return;
+    setIsSavingLocal(true);
+
     const targetOverride: ArtApplyTargetOverride = activeTargetOverride || {
       artistName: scope === 'artist' ? activeTargetLabel || query.trim() : undefined,
+      albumTitle: scope === 'track-album' ? activeTargetLabel || query.trim() : undefined,
     };
 
-    onSelectArt(urlToApply, scope, targetOverride);
-
     const appliedLabel =
-      targetOverride.albumTitle || targetOverride.artistName || activeTargetLabel || query.trim();
-    setStatusMessage(`Saved artwork for "${appliedLabel}"`);
+      targetOverride.albumTitle || targetOverride.artistName || activeTargetLabel || query.trim() || 'artwork';
+
+    let finalArtworkUrl = urlToApply;
+    let savedDiskNote = '';
+
+    // 1. Save image to local disk folder (./jellywisp-artwork/) so it persists locally even offline
+    if (saveToDiskFolder) {
+      try {
+        const localSaved = await metadataService.saveArtworkToLocalFolder({
+          label: `${scope}_${appliedLabel}`,
+          imageUrl: urlToApply.startsWith('data:') ? undefined : urlToApply,
+          dataUrl: urlToApply.startsWith('data:') ? urlToApply : undefined,
+        });
+        if (localSaved.ok) {
+          if (localSaved.localUrl) {
+            finalArtworkUrl = localSaved.localUrl;
+          } else if (localSaved.dataUrl) {
+            finalArtworkUrl = localSaved.dataUrl;
+          }
+          if (localSaved.fileName) {
+            savedDiskNote = ` (saved to jellywisp-artwork/${localSaved.fileName})`;
+          } else if (localSaved.filePath) {
+            savedDiskNote = ' (saved to local artwork folder)';
+          }
+
+          // 2. Also attempt to push the image to the Jellyfin server if connected
+          if (localSaved.dataUrl) {
+            if (scope === 'track-album' && targetOverride.albumId) {
+              jellyfin.uploadItemImage(targetOverride.albumId, localSaved.dataUrl).catch(() => {});
+            } else if (scope === 'artist' && targetOverride.artistName) {
+              const matchedArt = artists.find(
+                (a) => a.name.trim().toLowerCase() === targetOverride.artistName!.trim().toLowerCase()
+              );
+              if (matchedArt?.id) {
+                jellyfin.uploadItemImage(matchedArt.id, localSaved.dataUrl).catch(() => {});
+              }
+            }
+          }
+        }
+      } catch {}
+    }
+
+    onSelectArt(finalArtworkUrl, scope, targetOverride);
+    setIsSavingLocal(false);
+    setStatusMessage(`Applied artwork for "${appliedLabel}"${savedDiskNote}`);
     setCustomDirectUrl('');
 
-    // If working through missing artists, auto-advance to the next missing artist
-    if (scope === 'artist' && targetOverride.artistName) {
-      const currentKey = targetOverride.artistName.trim().toLowerCase();
-      const remaining = missingArtists.filter(
-        (a) => a.name.trim().toLowerCase() !== currentKey
-      );
-      if (remaining.length > 0) {
-        const nextArtist = remaining[0];
-        setActiveTargetOverride({ artistName: nextArtist.name });
-        setActiveTargetLabel(nextArtist.name);
-        setQuery(nextArtist.name);
-        runSearch(nextArtist.name, 'artist');
+    // Auto-advance if working through the missing queue
+    if (!showAllLibraryItems) {
+      if (scope === 'artist' && targetOverride.artistName) {
+        const currentKey = targetOverride.artistName.trim().toLowerCase();
+        const remaining = missingArtists.filter(
+          (a) => a.name.trim().toLowerCase() !== currentKey
+        );
+        if (remaining.length > 0) {
+          const nextArtist = remaining[0];
+          setActiveTargetOverride({ artistName: nextArtist.name });
+          setActiveTargetLabel(nextArtist.name);
+          setQuery(nextArtist.name);
+          runSearch(nextArtist.name, 'artist');
+        }
+      } else if (scope === 'track-album' && targetOverride.albumId) {
+        const remainingAlbums = missingAlbums.filter((a) => a.id !== targetOverride.albumId);
+        if (remainingAlbums.length > 0) {
+          handleSelectMissingAlbum(remainingAlbums[0]);
+        }
       }
-    } else if (scope === 'track-album' && targetOverride.albumId) {
-      const remainingAlbums = missingAlbums.filter((a) => a.id !== targetOverride.albumId);
-      if (remainingAlbums.length > 0) {
-        handleSelectMissingAlbum(remainingAlbums[0]);
+    }
+  };
+
+  const handleLocalFileSelected = (file: File) => {
+    if (!file || !file.type.startsWith('image/')) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = typeof reader.result === 'string' ? reader.result : '';
+      if (!dataUrl) return;
+      const localCard: ArtSearchResult = {
+        id: `local-file-${Date.now()}`,
+        source: 'Local File',
+        url: dataUrl,
+        thumbnail: dataUrl,
+        title: file.name.replace(/\.[^.]+$/, ''),
+        artist: activeTargetLabel || query || 'Local Image',
+        resolution: `${Math.round(file.size / 1024)} KB (Local Replacement)`,
+        kind: searchMode === 'artist' ? 'artist' : 'album',
+      };
+      setResults((prev) => [localCard, ...prev]);
+      setSelectedUrl(dataUrl);
+      setStatusMessage(`Loaded local file "${file.name}" — click Apply below or double-click card`);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleOpenLocalArtworkFolder = async () => {
+    const desktop = (window as any).jellywispDesktop;
+    if (desktop?.openLocalArtworkFolder) {
+      const res = await desktop.openLocalArtworkFolder();
+      if (res?.folderPath) {
+        setStatusMessage(`Opened folder: ${res.folderPath}`);
       }
+    } else {
+      setStatusMessage('Local artwork files are saved to ./jellywisp-artwork/ on disk');
     }
   };
 
   const content = (
     <div
+      onDragOver={(e) => {
+        e.preventDefault();
+        setIsDraggingFile(true);
+      }}
+      onDragLeave={() => setIsDraggingFile(false)}
+      onDrop={(e) => {
+        e.preventDefault();
+        setIsDraggingFile(false);
+        const file = e.dataTransfer?.files?.[0];
+        if (file) handleLocalFileSelected(file);
+      }}
       className={`${
         embedded
           ? 'flex-1 flex flex-col h-full overflow-hidden bg-[#0a0f1c]'
           : 'w-full max-w-6xl bg-[#0c111f] border border-white/15 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]'
-      } select-none`}
+      } select-none relative`}
     >
+      {isDraggingFile && (
+        <div className="absolute inset-0 z-50 bg-cyan-950/80 border-2 border-dashed border-cyan-400 rounded-2xl flex flex-col items-center justify-center gap-2 pointer-events-none">
+          <Upload className="w-10 h-10 text-cyan-300 animate-bounce" />
+          <p className="text-sm font-extrabold text-white">
+            Drop image file here to replace artwork locally
+          </p>
+        </div>
+      )}
+
+      {/* Hidden File Input for Local Image Replacement */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={(e) => {
+          const f = e.target.files?.[0];
+          if (f) handleLocalFileSelected(f);
+          e.target.value = '';
+        }}
+      />
+
       {/* Header */}
-      <div className="px-6 py-3.5 border-b border-white/10 flex items-center justify-between bg-black/35 shrink-0">
+      <div className="px-6 py-3.5 border-b border-white/10 flex flex-wrap items-center justify-between gap-3 bg-black/35 shrink-0">
         <div className="flex items-center gap-3">
           <div className="w-9 h-9 rounded-xl bg-pink-500/20 text-pink-400 border border-pink-500/30 flex items-center justify-center">
             <ImageIcon className="w-4 h-4" />
           </div>
           <div>
-            <div className="flex items-center gap-2.5">
+            <div className="flex flex-wrap items-center gap-2">
               <h3 className="text-base font-extrabold text-white tracking-tight">
-                Cover Art Finder
+                Cover Art Finder &amp; Local Artwork Manager
               </h3>
-              {missingArtists.length > 0 && (
-                <span className="px-2 py-0.5 rounded-full bg-amber-500/15 border border-amber-500/30 text-[10px] font-mono font-bold text-amber-300">
-                  {missingArtists.length} artists missing art
-                </span>
-              )}
-              {missingAlbums.length > 0 && (
-                <span className="px-2 py-0.5 rounded-full bg-cyan-500/15 border border-cyan-500/30 text-[10px] font-mono font-bold text-cyan-300">
-                  {missingAlbums.length} albums missing art
-                </span>
-              )}
+              <span className="px-2 py-0.5 rounded-full bg-amber-500/15 border border-amber-500/30 text-[10px] font-mono font-bold text-amber-300">
+                {missingArtists.length} artists missing art
+              </span>
+              <span className="px-2 py-0.5 rounded-full bg-cyan-500/15 border border-cyan-500/30 text-[10px] font-mono font-bold text-cyan-300">
+                {missingAlbums.length} albums missing art
+              </span>
             </div>
             <p className="text-xs text-slate-400">
               {activeTargetLabel
-                ? `Target: ${activeTargetLabel}`
-                : 'Select any artist or album missing artwork on the left, or search below'}
+                ? `Active Target: ${activeTargetLabel}`
+                : 'Search online (Apple Music, Deezer, Wikipedia) or upload a local image file to replace artwork'}
             </p>
           </div>
         </div>
 
         <div className="flex items-center gap-2">
           {statusMessage && (
-            <span className="px-3 py-1 rounded-lg bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 text-xs font-semibold flex items-center gap-1.5">
-              <Check className="w-3.5 h-3.5" />
-              <span>{statusMessage}</span>
+            <span className="px-3 py-1 rounded-lg bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 text-xs font-semibold flex items-center gap-1.5 max-w-md truncate">
+              <Check className="w-3.5 h-3.5 shrink-0" />
+              <span className="truncate">{statusMessage}</span>
             </span>
           )}
+
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            data-testid="upload-local-artwork-btn"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-cyan-500/15 hover:bg-cyan-500/25 border border-cyan-500/40 text-cyan-300 text-xs font-bold transition"
+            title="Select an image file (.jpg, .png, .webp) from your computer to replace artwork locally"
+          >
+            <Upload className="w-3.5 h-3.5" />
+            <span>Upload Local Image</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={handleOpenLocalArtworkFolder}
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-slate-300 hover:text-white text-xs font-semibold transition"
+            title="View local jellywisp-artwork folder where saved images are stored on disk"
+          >
+            <FolderOpen className="w-3.5 h-3.5 text-amber-400" />
+            <span className="hidden sm:inline">Artwork Folder</span>
+          </button>
+
           {!embedded && (
             <button
               onClick={onClose}
@@ -252,10 +422,10 @@ export const CoverArtSearchModal: React.FC<CoverArtSearchModalProps> = ({
         </div>
       </div>
 
-      {/* Main Two-Column Body: Left Missing Artwork Queue + Right Search & Results */}
+      {/* Main Two-Column Body: Left Missing/All Queue + Right Search & Results */}
       <div className="flex-1 flex flex-col md:flex-row overflow-hidden min-h-0">
-        {/* Left Sidebar: All Artists & Albums Missing Artwork */}
-        <aside className="w-full md:w-72 border-b md:border-b-0 md:border-r border-white/10 bg-black/25 flex flex-col shrink-0 max-h-56 md:max-h-none">
+        {/* Left Sidebar: Artists & Albums Queue */}
+        <aside className="w-full md:w-76 border-b md:border-b-0 md:border-r border-white/10 bg-black/25 flex flex-col shrink-0 max-h-60 md:max-h-none">
           <div className="p-3 border-b border-white/10 space-y-2">
             <div className="flex items-center gap-1 bg-white/5 p-1 rounded-xl border border-white/10">
               <button
@@ -268,7 +438,9 @@ export const CoverArtSearchModal: React.FC<CoverArtSearchModalProps> = ({
                 }`}
               >
                 <User className="w-3.5 h-3.5" />
-                <span>Missing Artists ({missingArtists.length})</span>
+                <span>
+                  Artists ({showAllLibraryItems ? artists.length : missingArtists.length})
+                </span>
               </button>
               <button
                 type="button"
@@ -280,7 +452,22 @@ export const CoverArtSearchModal: React.FC<CoverArtSearchModalProps> = ({
                 }`}
               >
                 <Disc className="w-3.5 h-3.5" />
-                <span>Albums ({missingAlbums.length})</span>
+                <span>
+                  Albums ({showAllLibraryItems ? albums.length : missingAlbums.length})
+                </span>
+              </button>
+            </div>
+
+            <div className="flex items-center justify-between gap-2 px-1">
+              <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400">
+                {showAllLibraryItems ? 'Showing All Library' : 'Showing Missing Art Only'}
+              </span>
+              <button
+                type="button"
+                onClick={() => setShowAllLibraryItems((v) => !v)}
+                className="text-[10px] font-mono font-bold text-cyan-400 hover:underline"
+              >
+                {showAllLibraryItems ? 'Show Missing Only' : 'Show All Library'}
               </button>
             </div>
 
@@ -288,20 +475,31 @@ export const CoverArtSearchModal: React.FC<CoverArtSearchModalProps> = ({
               type="text"
               value={missingFilter}
               onChange={(e) => setMissingFilter(e.target.value)}
-              placeholder={`Filter missing ${missingTab}...`}
+              placeholder={`Filter ${missingTab}...`}
               className="w-full bg-white/5 text-xs text-slate-200 placeholder:text-slate-500 px-3 py-1.5 rounded-lg border border-white/10 focus:border-[var(--fin-accent)] focus:outline-none"
             />
           </div>
 
           <div className="flex-1 overflow-y-auto p-2 space-y-1">
             {missingTab === 'artists' ? (
-              filteredMissingArtists.length === 0 ? (
-                <div className="p-6 text-center text-xs text-slate-500 space-y-1">
+              displayedArtists.length === 0 ? (
+                <div className="p-6 text-center text-xs text-slate-400 space-y-2">
                   <Sparkles className="w-5 h-5 text-emerald-400 mx-auto" />
-                  <p className="text-slate-300 font-semibold">All artists have artwork!</p>
+                  <p className="text-slate-200 font-semibold">
+                    {missingFilter ? 'No matching artists' : 'All artists have artwork!'}
+                  </p>
+                  {!showAllLibraryItems && artists.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setShowAllLibraryItems(true)}
+                      className="px-3 py-1 rounded-lg bg-white/10 hover:bg-white/15 text-cyan-300 text-[11px] font-bold transition"
+                    >
+                      Browse All {artists.length} Artists to Replace Art
+                    </button>
+                  )}
                 </div>
               ) : (
-                filteredMissingArtists.map((art) => {
+                displayedArtists.map((art) => {
                   const isCurrentTarget =
                     activeTargetOverride?.artistName?.toLowerCase() === art.name.toLowerCase();
                   return (
@@ -329,14 +527,27 @@ export const CoverArtSearchModal: React.FC<CoverArtSearchModalProps> = ({
                   );
                 })
               )
-            ) : filteredMissingAlbums.length === 0 ? (
-              <div className="p-6 text-center text-xs text-slate-500 space-y-1">
+            ) : displayedAlbums.length === 0 ? (
+              <div className="p-6 text-center text-xs text-slate-400 space-y-2">
                 <Sparkles className="w-5 h-5 text-emerald-400 mx-auto" />
-                <p className="text-slate-300 font-semibold">All albums have cover art!</p>
+                <p className="text-slate-200 font-semibold">
+                  {missingFilter ? 'No matching albums' : 'All albums have cover art!'}
+                </p>
+                {!showAllLibraryItems && albums.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setShowAllLibraryItems(true)}
+                    className="px-3 py-1 rounded-lg bg-white/10 hover:bg-white/15 text-cyan-300 text-[11px] font-bold transition"
+                  >
+                    Browse All {albums.length} Albums to Replace Art
+                  </button>
+                )}
               </div>
             ) : (
-              filteredMissingAlbums.map((alb) => {
-                const isCurrentTarget = activeTargetOverride?.albumId === alb.id;
+              displayedAlbums.map((alb) => {
+                const isCurrentTarget =
+                  activeTargetOverride?.albumId === alb.id ||
+                  activeTargetOverride?.albumTitle?.toLowerCase() === alb.title.toLowerCase();
                 return (
                   <button
                     key={alb.id}
@@ -348,9 +559,17 @@ export const CoverArtSearchModal: React.FC<CoverArtSearchModalProps> = ({
                         : 'text-slate-300 hover:bg-white/5 hover:text-white border border-transparent'
                     }`}
                   >
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate font-semibold">{alb.title}</p>
-                      <p className="text-[10px] text-slate-500 truncate">{alb.artist}</p>
+                    <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                      <img
+                        src={resolveCoverArt(alb.coverUrl)}
+                        onError={handleCoverImgError}
+                        alt=""
+                        className="w-7 h-7 rounded-md object-cover border border-white/10 shrink-0"
+                      />
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate font-semibold">{alb.title}</p>
+                        <p className="text-[10px] text-slate-500 truncate">{alb.artist}</p>
+                      </div>
                     </div>
                     <AlertCircle className="w-3.5 h-3.5 text-cyan-400/80 shrink-0" />
                   </button>
@@ -411,8 +630,8 @@ export const CoverArtSearchModal: React.FC<CoverArtSearchModalProps> = ({
               </button>
             </form>
 
-            {/* Optional direct image URL input */}
-            <div className="flex items-center gap-2">
+            {/* Direct image URL input + Local File Drop Hint */}
+            <div className="flex flex-wrap items-center gap-2">
               <input
                 type="url"
                 value={customDirectUrl}
@@ -420,7 +639,7 @@ export const CoverArtSearchModal: React.FC<CoverArtSearchModalProps> = ({
                   setCustomDirectUrl(e.target.value);
                   if (e.target.value.trim()) setSelectedUrl(e.target.value.trim());
                 }}
-                placeholder="Or paste a direct image URL (https://...)"
+                placeholder="Paste direct image URL (https://...) or drag & drop an image file anywhere..."
                 className="flex-1 bg-black/30 text-[11px] text-slate-300 placeholder:text-slate-500 px-3 py-1.5 rounded-lg border border-white/10 focus:border-[var(--fin-accent)] focus:outline-none font-mono"
               />
             </div>
@@ -431,16 +650,24 @@ export const CoverArtSearchModal: React.FC<CoverArtSearchModalProps> = ({
             {isSearching ? (
               <div className="py-16 flex flex-col items-center justify-center gap-3 text-cyan-300 text-xs font-mono">
                 <Loader2 className="w-7 h-7 animate-spin text-[var(--fin-accent)]" />
-                <span>Searching artwork for "{query}"...</span>
+                <span>Searching Apple Music, Deezer &amp; Wikipedia for "{query}"...</span>
               </div>
             ) : results.length === 0 ? (
-              <div className="text-center py-14 text-slate-400 text-xs space-y-2">
+              <div className="text-center py-14 text-slate-400 text-xs space-y-3">
                 <ImageIcon className="w-9 h-9 mx-auto text-slate-600" />
                 <p className="font-semibold text-slate-300">
                   {query.trim()
-                    ? `No artwork found for "${query}".`
-                    : 'Click any missing artist on the left or search above.'}
+                    ? `No online artwork found for "${query}".`
+                    : 'Select an artist or album on the left, search above, or upload a local image.'}
                 </p>
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-white/10 hover:bg-white/15 text-cyan-300 text-xs font-bold border border-white/10 transition"
+                >
+                  <Upload className="w-4 h-4" />
+                  <span>Choose Local Image File from Disk</span>
+                </button>
               </div>
             ) : (
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
@@ -455,10 +682,11 @@ export const CoverArtSearchModal: React.FC<CoverArtSearchModalProps> = ({
                           item.url,
                           searchMode === 'artist' || activeTargetOverride?.artistName
                             ? 'artist'
-                            : 'track-album'
+                            : 'track-album',
+                          true
                         )
                       }
-                      title="Click to select • Double-click to apply immediately"
+                      title="Click to select • Double-click to save to local folder & apply immediately"
                       className={`group relative rounded-xl overflow-hidden border cursor-pointer transition flex flex-col bg-black/40 ${
                         isSelected
                           ? 'border-[var(--fin-accent)] ring-2 ring-[var(--fin-accent)]/40'
@@ -498,12 +726,15 @@ export const CoverArtSearchModal: React.FC<CoverArtSearchModalProps> = ({
 
           {/* Footer Actions */}
           <div className="px-6 py-3.5 border-t border-white/10 flex flex-wrap items-center justify-between gap-3 bg-black/30 shrink-0">
-            <span className="text-xs text-slate-400 font-mono truncate max-w-sm">
-              {selectedUrl
-                ? `Selected artwork ready for ${activeTargetLabel || query || 'target'}`
-                : 'Click any artwork card to select (or double-click to apply)'}
+            <span className="text-xs text-slate-400 font-mono truncate max-w-sm flex items-center gap-1.5">
+              <Download className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+              <span className="truncate">
+                {selectedUrl
+                  ? `Ready to save locally & apply to ${activeTargetLabel || query || 'target'}`
+                  : 'Select a cover card or upload a local file'}
+              </span>
             </span>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               {!embedded && (
                 <button
                   onClick={onClose}
@@ -513,23 +744,23 @@ export const CoverArtSearchModal: React.FC<CoverArtSearchModalProps> = ({
                 </button>
               )}
               <button
-                disabled={!selectedUrl}
-                onClick={() => selectedUrl && handleApplyArt(selectedUrl, 'artist')}
+                disabled={!selectedUrl || isSavingLocal}
+                onClick={() => selectedUrl && handleApplyArt(selectedUrl, 'artist', true)}
                 className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-white/10 hover:bg-white/15 disabled:opacity-40 text-white text-xs font-bold border border-white/10 transition"
               >
                 <User className="w-3.5 h-3.5 text-cyan-400" />
                 <span>
-                  Apply to Artist
+                  {isSavingLocal ? 'Saving...' : 'Save Locally & Apply to Artist'}
                   {activeTargetOverride?.artistName ? ` (${activeTargetOverride.artistName})` : ''}
                 </span>
               </button>
               <button
-                disabled={!selectedUrl}
-                onClick={() => selectedUrl && handleApplyArt(selectedUrl, 'track-album')}
+                disabled={!selectedUrl || isSavingLocal}
+                onClick={() => selectedUrl && handleApplyArt(selectedUrl, 'track-album', true)}
                 className="flex items-center gap-1.5 px-5 py-2 rounded-xl bg-[var(--fin-accent)] hover:opacity-90 disabled:opacity-40 text-slate-950 text-xs font-extrabold shadow-md transition"
               >
                 <Disc className="w-3.5 h-3.5" />
-                <span>Apply to Album &amp; Tracks</span>
+                <span>{isSavingLocal ? 'Saving...' : 'Save Locally & Apply to Album'}</span>
               </button>
             </div>
           </div>

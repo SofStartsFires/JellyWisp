@@ -4,6 +4,9 @@ import {
   computeArtistStatsMap,
   computeMissingArtworkItems,
   searchGlobalLibrary,
+  sortArtistsDefault,
+  sortAlbumsDefault,
+  sortTracksDefault,
 } from './libraryHelpers.ts';
 import { JELLYWISP_COVER_PLACEHOLDER } from './jellywispArtwork.ts';
 import { Artist, Album, Track } from '../types/index.ts';
@@ -114,7 +117,7 @@ describe('libraryHelpers', () => {
       name: 'Radiohead',
       bio: 'English rock band',
       coverUrl: JELLYWISP_COVER_PLACEHOLDER,
-      albums: [], // Jellyfin artist items start with empty albums[]
+      albums: [],
       trackCount: 32,
       genres: ['Alternative Rock'],
     },
@@ -133,17 +136,15 @@ describe('libraryHelpers', () => {
     const artistsWithEmbeddedAlbum: Artist[] = [
       {
         ...sampleArtists[0],
-        albums: [sampleAlbums[0]], // Even when artist.albums already contains OK Computer (id: alb-okc)
+        albums: [sampleAlbums[0]],
       },
       sampleArtists[1],
     ];
     const statsMap = computeArtistStatsMap(artistsWithEmbeddedAlbum, sampleAlbums, sampleTracks);
     const rhStats = statsMap.get('radiohead');
     assert.ok(rhStats);
-    // Should be 3 real albums (OK Computer, Kid A, In Rainbows), NOT double-counted as 4 and NOT Math.round(32/10)
     assert.equal(rhStats.albumCount, 3);
     assert.equal(rhStats.trackCount, 32);
-    // Also resolves fallback portrait from matching albums when artist coverUrl is placeholder
     assert.equal(rhStats.coverUrl, 'https://example.com/okc.jpg');
   });
 
@@ -172,18 +173,17 @@ describe('libraryHelpers', () => {
       assert.equal(res.directMatch.artist.name, 'Boards of Canada');
     }
 
-    // Partial unique match where all albums/tracks belong to Radiohead resolves to artist Radiohead
-    const rhRes = searchGlobalLibrary('Radioh', {
-      artists: sampleArtists,
+    // Synthesizes matching albums from tracks even when albums array is empty
+    const albumFromTracksOnly = searchGlobalLibrary('OK Computer', {
+      artists: [],
       albumArtists: [],
-      albums: sampleAlbums,
+      albums: [],
       tracks: sampleTracks,
     });
-    assert.ok(rhRes.directMatch);
-    assert.equal(rhRes.directMatch.type, 'artist');
-    if (rhRes.directMatch.type === 'artist') {
-      assert.equal(rhRes.directMatch.artist.name, 'Radiohead');
-    }
+    assert.equal(albumFromTracksOnly.albums.length, 1);
+    assert.equal(albumFromTracksOnly.albums[0].title, 'OK Computer');
+    assert.ok(albumFromTracksOnly.directMatch);
+    assert.equal(albumFromTracksOnly.directMatch.type, 'album');
 
     // Unique track search resolves to track directMatch
     const trackRes = searchGlobalLibrary('Weird Fishes', {
@@ -197,5 +197,31 @@ describe('libraryHelpers', () => {
     if (trackRes.directMatch.type === 'track') {
       assert.equal(trackRes.directMatch.track.title, 'Weird Fishes/Arpeggi');
     }
+  });
+
+  it('sorts artists, albums, and tracks deterministically ignoring leading articles (The/A/An)', () => {
+    const unsortedArtists: Artist[] = [
+      { id: '1', name: 'The Weeknd', bio: '', coverUrl: '', albums: [], trackCount: 5, genres: [] },
+      { id: '2', name: 'Pain of Salvation', bio: '', coverUrl: '', albums: [], trackCount: 5, genres: [] },
+      { id: '3', name: 'A Perfect Circle', bio: '', coverUrl: '', albums: [], trackCount: 5, genres: [] },
+      { id: '4', name: 'Aphex Twin', bio: '', coverUrl: '', albums: [], trackCount: 5, genres: [] },
+    ];
+    const sorted = sortArtistsDefault(unsortedArtists);
+    assert.deepEqual(
+      sorted.map((a) => a.name),
+      ['Aphex Twin', 'Pain of Salvation', 'A Perfect Circle', 'The Weeknd']
+    );
+
+    const sortedAlbums = sortAlbumsDefault(sampleAlbums);
+    assert.deepEqual(
+      sortedAlbums.map((a) => a.title),
+      ['In Rainbows', 'Kid A', 'OK Computer']
+    );
+
+    const sortedTracks = sortTracksDefault(sampleTracks);
+    assert.deepEqual(
+      sortedTracks.map((t) => t.album),
+      ['In Rainbows', 'Kid A', 'OK Computer']
+    );
   });
 });

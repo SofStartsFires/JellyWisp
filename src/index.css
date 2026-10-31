@@ -101,6 +101,25 @@ body, input, button, select, textarea {
 .jellywisp-titlebar {
   background-color: color-mix(in srgb, var(--fin-titlebar, var(--fin-sidebar)) 92%, transparent);
   backdrop-filter: blur(var(--fin-blur, 16px));
+  -webkit-app-region: drag;
+  app-region: drag;
+}
+
+.window-drag-region {
+  -webkit-app-region: drag;
+  app-region: drag;
+}
+
+.jellywisp-titlebar button,
+.jellywisp-titlebar input,
+.jellywisp-titlebar select,
+.jellywisp-titlebar textarea,
+.jellywisp-titlebar a,
+.jellywisp-titlebar [role="button"],
+.jellywisp-titlebar .no-drag,
+.no-drag {
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
 }
 
 .jellywisp-sidebar {
@@ -125,3 +144,4 @@ body, input, button, select, textarea {
   background-color: color-mix(in srgb, var(--fin-sidebar) 95%, #000000);
   backdrop-filter: blur(24px);
 }
+

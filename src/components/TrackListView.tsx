@@ -11,14 +11,27 @@ import {
   Tag,
   Columns,
   Loader2,
+  Disc,
+  Users,
 } from 'lucide-react';
-import { Track, TrackListDensity, LayoutConfig, LibrarySyncProgress } from '../types/index.ts';
+import {
+  Track,
+  Album,
+  Artist,
+  TrackListDensity,
+  LayoutConfig,
+  LibrarySyncProgress,
+} from '../types/index.ts';
 import { formatDuration } from '../utils/audioMath.ts';
 import { DEFAULT_LAYOUT_CONFIG } from '../services/layoutEngine.ts';
 import { resolveCoverArt, handleCoverImgError } from '../utils/jellywispArtwork.ts';
+import { compareSortableStrings, sortTracksDefault } from '../utils/libraryHelpers.ts';
 
 interface TrackListViewProps {
   tracks: Track[];
+  searchQuery?: string;
+  matchedAlbums?: Album[];
+  matchedArtists?: Artist[];
   titleOverride?: string;
   subtitleOverride?: string;
   totalTrackCount?: number;
@@ -58,6 +71,9 @@ export type SortField =
 
 export const TrackListView: React.FC<TrackListViewProps> = ({
   tracks,
+  searchQuery = '',
+  matchedAlbums = [],
+  matchedArtists = [],
   titleOverride,
   subtitleOverride,
   totalTrackCount,
@@ -138,17 +154,18 @@ export const TrackListView: React.FC<TrackListViewProps> = ({
   // Memoized sorting so 80,000+ tracks are NEVER re-sorted on playback timeupdate ticks
   const sortedTracks = useMemo(() => {
     if (sortField === 'default') {
-      return sortAsc ? tracks : [...tracks].reverse();
+      const defSorted = sortTracksDefault(tracks);
+      return sortAsc ? defSorted : [...defSorted].reverse();
     }
     const copy = [...tracks];
     copy.sort((a, b) => {
       let cmp = 0;
-      if (sortField === 'title') cmp = a.title.localeCompare(b.title);
-      else if (sortField === 'artist') cmp = a.artist.localeCompare(b.artist);
+      if (sortField === 'title') cmp = compareSortableStrings(a.title, b.title);
+      else if (sortField === 'artist') cmp = compareSortableStrings(a.artist, b.artist);
       else if (sortField === 'albumArtist') {
-        cmp = (a.albumArtist || a.artist).localeCompare(b.albumArtist || b.artist);
-      } else if (sortField === 'album') cmp = a.album.localeCompare(b.album);
-      else if (sortField === 'genre') cmp = a.genre.localeCompare(b.genre);
+        cmp = compareSortableStrings(a.albumArtist || a.artist, b.albumArtist || b.artist);
+      } else if (sortField === 'album') cmp = compareSortableStrings(a.album, b.album);
+      else if (sortField === 'genre') cmp = compareSortableStrings(a.genre, b.genre);
       else if (sortField === 'decade') {
         const decA = Math.floor((a.year || 2000) / 10) * 10;
         const decB = Math.floor((b.year || 2000) / 10) * 10;
@@ -228,7 +245,7 @@ export const TrackListView: React.FC<TrackListViewProps> = ({
               }}
               className="bg-transparent text-xs font-semibold text-white focus:outline-none cursor-pointer"
             >
-              <option value="default" className="bg-[#0d1220]">Default Order</option>
+              <option value="default" className="bg-[#0d1220]">Album Artist &amp; Album (A–Z)</option>
               <option value="albumArtist" className="bg-[#0d1220]">Album Artist</option>
               <option value="artist" className="bg-[#0d1220]">Track Artist</option>
               <option value="title" className="bg-[#0d1220]">Track Title</option>
@@ -324,6 +341,78 @@ export const TrackListView: React.FC<TrackListViewProps> = ({
           )}
         </div>
       </div>
+
+      {/* Global Search Cross-Category Matches (Albums & Artists) when searching on Track View */}
+      {searchQuery.trim().length > 0 && (matchedAlbums.length > 0 || matchedArtists.length > 0) && (
+        <div
+          data-testid="track-view-global-matches"
+          className="mt-3 p-3 rounded-2xl bg-white/[0.03] border border-white/10 space-y-2.5 shrink-0"
+        >
+          {matchedAlbums.length > 0 && (
+            <div className="space-y-1.5">
+              <div className="flex items-center gap-1.5 text-[10px] font-mono uppercase tracking-wider text-emerald-400 font-bold">
+                <Disc className="w-3 h-3" />
+                <span>Matching Albums ({matchedAlbums.length})</span>
+              </div>
+              <div className="flex items-center gap-2.5 overflow-x-auto pb-1">
+                {matchedAlbums.slice(0, 8).map((alb) => (
+                  <button
+                    key={alb.id}
+                    type="button"
+                    onClick={() => onNavigateToAlbum?.(alb.title, alb.id)}
+                    className="flex items-center gap-2.5 px-3 py-1.5 rounded-xl bg-black/40 hover:bg-white/10 border border-white/10 hover:border-cyan-500/40 transition shrink-0 text-left max-w-[240px]"
+                  >
+                    <img
+                      src={resolveCoverArt(alb.coverUrl)}
+                      onError={handleCoverImgError}
+                      alt=""
+                      className="w-8 h-8 rounded-lg object-cover border border-white/10 shrink-0"
+                    />
+                    <div className="min-w-0">
+                      <p className="text-xs font-bold text-white truncate">{alb.title}</p>
+                      <p className="text-[10px] text-slate-400 truncate">
+                        {alb.artist} {alb.year ? `• ${alb.year}` : ''}
+                      </p>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {matchedArtists.length > 0 && (
+            <div className="space-y-1.5">
+              <div className="flex items-center gap-1.5 text-[10px] font-mono uppercase tracking-wider text-cyan-400 font-bold">
+                <Users className="w-3 h-3" />
+                <span>Matching Artists ({matchedArtists.length})</span>
+              </div>
+              <div className="flex items-center gap-2 overflow-x-auto pb-0.5">
+                {matchedArtists.slice(0, 8).map((art) => (
+                  <button
+                    key={art.id}
+                    type="button"
+                    onClick={() => onNavigateToArtist?.(art.name)}
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      onContextMenuArtist?.(e, art.name);
+                    }}
+                    className="flex items-center gap-2 px-2.5 py-1 rounded-full bg-black/40 hover:bg-white/10 border border-white/10 hover:border-cyan-500/40 transition shrink-0 text-xs font-semibold text-slate-200 hover:text-white"
+                  >
+                    <img
+                      src={resolveCoverArt(art.coverUrl)}
+                      onError={handleCoverImgError}
+                      alt=""
+                      className="w-5 h-5 rounded-full object-cover border border-white/10 shrink-0"
+                    />
+                    <span>{art.name}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Flexible Table Headers */}
       <div className="flex items-center gap-3 px-4 py-2.5 text-[11px] font-mono text-slate-400 font-semibold uppercase tracking-wider border-b border-white/5 mt-2 shrink-0">

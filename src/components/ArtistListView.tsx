@@ -34,6 +34,7 @@ import {
   getAlbumReleaseType,
   getReleaseTypeBadge,
 } from './AlbumGridView.tsx';
+import { compareSortableStrings } from '../utils/libraryHelpers.ts';
 
 interface ArtistListViewProps {
   artists: Artist[];
@@ -265,19 +266,19 @@ export const ArtistListView: React.FC<ArtistListViewProps> = ({
   const sortedArtists = useMemo(() => {
     const copy = [...artists];
     copy.sort((a, b) => {
-      if (artistSort === 'name-asc') return a.name.localeCompare(b.name);
-      if (artistSort === 'name-desc') return b.name.localeCompare(a.name);
+      if (artistSort === 'name-asc') return compareSortableStrings(a.name, b.name);
+      if (artistSort === 'name-desc') return compareSortableStrings(b.name, a.name);
       if (artistSort === 'albums') {
         const ca = albumCountByArtist.get(a.name.toLowerCase()) || a.albums?.length || 0;
         const cb = albumCountByArtist.get(b.name.toLowerCase()) || b.albums?.length || 0;
-        return cb - ca || a.name.localeCompare(b.name);
+        return cb - ca || compareSortableStrings(a.name, b.name);
       }
       if (artistSort === 'plays') {
         const pa = playCountByArtist.get(a.name.toLowerCase()) || 0;
         const pb = playCountByArtist.get(b.name.toLowerCase()) || 0;
-        return pb - pa || a.name.localeCompare(b.name);
+        return pb - pa || compareSortableStrings(a.name, b.name);
       }
-      return (b.trackCount || 0) - (a.trackCount || 0) || a.name.localeCompare(b.name);
+      return (b.trackCount || 0) - (a.trackCount || 0) || compareSortableStrings(a.name, b.name);
     });
     return copy;
   }, [artists, artistSort, albumCountByArtist, playCountByArtist]);

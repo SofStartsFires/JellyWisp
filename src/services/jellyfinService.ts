@@ -10,6 +10,11 @@ import {
 } from '../types/index.ts';
 import { INITIAL_TRACKS, INITIAL_ALBUMS, INITIAL_ARTISTS } from '../data/mockLibrary.ts';
 import { JELLYWISP_COVER_PLACEHOLDER } from '../utils/jellywispArtwork.ts';
+import {
+  sortTracksDefault,
+  sortAlbumsDefault,
+  sortArtistsDefault,
+} from '../utils/libraryHelpers.ts';
 
 export const DEFAULT_FRESH_CONFIG: JellyfinServerConfig = {
   url: '',
@@ -382,26 +387,34 @@ export class JellyfinService {
       safeSetLocalStorage(STORAGE_KEY_DEVICE_ID, this.deviceId);
     }
 
+    this.config = this.readConfigFromStorage();
+  }
+
+  private readConfigFromStorage(): JellyfinServerConfig {
     const saved = safeGetLocalStorage(STORAGE_KEY_SERVER);
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
         if (parsed && typeof parsed === 'object') {
-          // If the user previously saved real server credentials, ensure isConnected stays true so we auto-reconnect on launch
           if (!parsed.isDemoMode && parsed.url && parsed.token && parsed.userId) {
-            this.config = { ...DEFAULT_FRESH_CONFIG, ...parsed, isConnected: true };
-          } else {
-            this.config = { ...DEFAULT_DEMO_CONFIG, ...parsed };
+            return { ...DEFAULT_FRESH_CONFIG, ...parsed, isConnected: true, isDemoMode: false };
           }
-        } else {
-          this.config = { ...DEFAULT_DEMO_CONFIG };
+          return { ...DEFAULT_DEMO_CONFIG, ...parsed };
         }
       } catch {
-        this.config = { ...DEFAULT_DEMO_CONFIG };
+        // fallthrough
       }
-    } else {
-      this.config = { ...DEFAULT_DEMO_CONFIG };
     }
+    return { ...DEFAULT_DEMO_CONFIG };
+  }
+
+  public reloadFromStorage(): JellyfinServerConfig {
+    const savedDevice = safeGetLocalStorage(STORAGE_KEY_DEVICE_ID);
+    if (savedDevice) {
+      this.deviceId = savedDevice;
+    }
+    this.config = this.readConfigFromStorage();
+    return this.getConfig();
   }
 
   public getDeviceId(): string {
@@ -412,25 +425,35 @@ export class JellyfinService {
     if (!this.config.isDemoMode && this.config.url) {
       return this.config.url;
     }
-    return localStorage.getItem(STORAGE_KEY_LAST_URL) || '';
+    return safeGetLocalStorage(STORAGE_KEY_LAST_URL) || '';
   }
 
   public getConfig(): JellyfinServerConfig {
+    // If storage was hydrated after singleton creation, sync automatically
+    if (this.config.isDemoMode) {
+      const latest = this.readConfigFromStorage();
+      if (!latest.isDemoMode && latest.url && latest.token) {
+        this.config = latest;
+      }
+    }
     return { ...this.config };
   }
 
   public saveConfig(config: JellyfinServerConfig) {
     this.config = { ...config };
-    localStorage.setItem(STORAGE_KEY_SERVER, JSON.stringify(this.config));
+    safeSetLocalStorage(STORAGE_KEY_SERVER, JSON.stringify(this.config));
     if (!config.isDemoMode && config.url) {
-      localStorage.setItem(STORAGE_KEY_LAST_URL, config.url);
+      safeSetLocalStorage(STORAGE_KEY_LAST_URL, config.url);
     }
   }
 
   public resetToDemo(): JellyfinServerConfig {
     this.activeSyncGeneration++;
     this.config = { ...DEFAULT_DEMO_CONFIG };
-    localStorage.setItem(STORAGE_KEY_SERVER, JSON.stringify(this.config));
+    safeSetLocalStorage(STORAGE_KEY_SERVER, JSON.stringify(this.config));
+    try {
+      localStorage.removeItem('jellywisp_saved_credentials_v1');
+    } catch {}
     return this.config;
   }
 
@@ -764,6 +787,12 @@ export class JellyfinService {
     };
 
     this.saveConfig(newConfig);
+    try {
+      safeSetLocalStorage(
+        'jellywisp_saved_credentials_v1',
+        JSON.stringify({ url: cleanUrl, username: username.trim(), password })
+      );
+    } catch {}
     return { success: true, config: newConfig };
   }
 
@@ -1522,9 +1551,9 @@ export class JellyfinService {
         isComplete: true,
       };
       return {
-        tracks: overridden.tracks,
-        albums: syncedAlbums,
-        artists: syncedArtists,
+        tracks: sortTracksDefault(overridden.tracks),
+        albums: sortAlbumsDefault(syncedAlbums),
+        artists: sortArtistsDefault(syncedArtists),
         progress: demoProgress,
       };
     }
@@ -1545,9 +1574,9 @@ export class JellyfinService {
         : '';
 
       const INITIAL_BATCH = 500;
-      const trackFields = '&Fields=Genres,ProductionYear,AlbumArtist,Artists,ParentIndexNumber,IndexNumber';
-      const albumFields = '&Fields=Genres,ProductionYear,AlbumArtist,Artists,ChildCount';
-      const artistFields = '&Fields=Genres,Overview,ChildCount';
+      const trackFields = '&Fields=Genres,ProductionYear,AlbumArtist,Artists,ParentIndexNumber,IndexNumber&SortBy=AlbumArtist,Album,ParentIndexNumber,IndexNumber,SortName&SortOrder=Ascending';
+      const albumFields = '&Fields=Genres,ProductionYear,AlbumArtist,Artists,ChildCount&SortBy=SortName&SortOrder=Ascending';
+      const artistFields = '&Fields=Genres,Overview,ChildCount&SortBy=SortName&SortOrder=Ascending';
 
       const buildTracksUrl = (start: number, limit: number, pFilter: string) =>
         `/Users/${this.config.userId}/Items?IncludeItemTypes=Audio&Recursive=true&StartIndex=${start}&Limit=${limit}${trackFields}${pFilter}`;
@@ -1558,15 +1587,50 @@ export class JellyfinService {
       const buildArtistsUrl = (start: number, limit: number, pFilter: string) =>
         `/Users/${this.config.userId}/Items?IncludeItemTypes=MusicArtist&Recursive=true&StartIndex=${start}&Limit=${limit}${artistFields}${pFilter}`;
 
-      // 1. Fetch initial tracks batch first
-      let tracksRes = await this.request<any>(
-        cleanUrl,
-        buildTracksUrl(0, INITIAL_BATCH, activeParentFilter),
-        {
+      // 1. Fetch initial tracks, albums, and artists batches in parallel for 3x faster startup sync
+      let [tracksRes, albumsRes, artistsRes] = await Promise.all([
+        this.request<any>(cleanUrl, buildTracksUrl(0, INITIAL_BATCH, activeParentFilter), {
           token: this.config.token,
           forceProxy: this.config.useProxy,
-        }
-      );
+        }),
+        this.request<any>(cleanUrl, buildAlbumsUrl(0, INITIAL_BATCH, activeParentFilter), {
+          token: this.config.token,
+          forceProxy: this.config.useProxy,
+        }),
+        this.request<any>(cleanUrl, buildArtistsUrl(0, INITIAL_BATCH, activeParentFilter), {
+          token: this.config.token,
+          forceProxy: this.config.useProxy,
+        }),
+      ]);
+
+      // If token expired (401), try automatic silent re-authentication if saved credentials exist
+      if (tracksRes.status === 401) {
+        try {
+          const savedCredsRaw = safeGetLocalStorage('jellywisp_saved_credentials_v1');
+          if (savedCredsRaw) {
+            const creds = JSON.parse(savedCredsRaw);
+            if (creds?.url && creds?.username) {
+              const reauth = await this.authenticate(creds.url, creds.username, creds.password || '');
+              if (reauth.success && reauth.config?.token) {
+                [tracksRes, albumsRes, artistsRes] = await Promise.all([
+                  this.request<any>(cleanUrl, buildTracksUrl(0, INITIAL_BATCH, activeParentFilter), {
+                    token: this.config.token,
+                    forceProxy: this.config.useProxy,
+                  }),
+                  this.request<any>(cleanUrl, buildAlbumsUrl(0, INITIAL_BATCH, activeParentFilter), {
+                    token: this.config.token,
+                    forceProxy: this.config.useProxy,
+                  }),
+                  this.request<any>(cleanUrl, buildArtistsUrl(0, INITIAL_BATCH, activeParentFilter), {
+                    token: this.config.token,
+                    forceProxy: this.config.useProxy,
+                  }),
+                ]);
+              }
+            }
+          }
+        } catch {}
+      }
 
       if (
         tracksRes.ok &&
@@ -1574,14 +1638,23 @@ export class JellyfinService {
         activeParentFilter
       ) {
         activeParentFilter = '';
-        tracksRes = await this.request<any>(cleanUrl, buildTracksUrl(0, INITIAL_BATCH, ''), {
-          token: this.config.token,
-          forceProxy: this.config.useProxy,
-        });
+        [tracksRes, albumsRes, artistsRes] = await Promise.all([
+          this.request<any>(cleanUrl, buildTracksUrl(0, INITIAL_BATCH, ''), {
+            token: this.config.token,
+            forceProxy: this.config.useProxy,
+          }),
+          this.request<any>(cleanUrl, buildAlbumsUrl(0, INITIAL_BATCH, ''), {
+            token: this.config.token,
+            forceProxy: this.config.useProxy,
+          }),
+          this.request<any>(cleanUrl, buildArtistsUrl(0, INITIAL_BATCH, ''), {
+            token: this.config.token,
+            forceProxy: this.config.useProxy,
+          }),
+        ]);
       }
 
       if (tracksRes.status === 401) {
-        this.saveConfig({ ...this.config, isConnected: false });
         return {
           tracks: [],
           albums: [],
@@ -1600,25 +1673,6 @@ export class JellyfinService {
           error: tracksRes.error || `Failed to fetch music library (HTTP ${tracksRes.status})`,
         };
       }
-
-      // 2. Fetch initial albums and artists batches
-      const albumsRes = await this.request<any>(
-        cleanUrl,
-        buildAlbumsUrl(0, INITIAL_BATCH, activeParentFilter),
-        {
-          token: this.config.token,
-          forceProxy: this.config.useProxy,
-        }
-      );
-
-      let artistsRes = await this.request<any>(
-        cleanUrl,
-        buildArtistsUrl(0, INITIAL_BATCH, activeParentFilter),
-        {
-          token: this.config.token,
-          forceProxy: this.config.useProxy,
-        }
-      );
 
       if (!artistsRes.ok || !artistsRes.data?.Items?.length) {
         const fallbackArtists = await this.request<any>(
@@ -1711,9 +1765,9 @@ export class JellyfinService {
 
       this.enrichTrackGenresFromAlbumsAndArtists(allTracks, allAlbums, allArtists);
       const overriddenInitial = applyLocalLibraryOverrides(allTracks, allAlbums, allArtists);
-      allTracks = overriddenInitial.tracks;
-      allAlbums = overriddenInitial.albums;
-      allArtists = overriddenInitial.artists;
+      allTracks = sortTracksDefault(overriddenInitial.tracks);
+      allAlbums = sortAlbumsDefault(overriddenInitial.albums);
+      allArtists = sortArtistsDefault(overriddenInitial.artists);
 
       const isInitiallyComplete =
         allTracks.length >= totalTracks &&
@@ -1782,9 +1836,9 @@ export class JellyfinService {
     let artists = initialArtists;
 
     const CHUNK_SIZE = 1500;
-    const trackFields = '&Fields=Genres,ProductionYear,AlbumArtist,Artists,ParentIndexNumber,IndexNumber';
-    const albumFields = '&Fields=Genres,ProductionYear,AlbumArtist,Artists,ChildCount';
-    const artistFields = '&Fields=Genres,Overview,ChildCount';
+    const trackFields = '&Fields=Genres,ProductionYear,AlbumArtist,Artists,ParentIndexNumber,IndexNumber&SortBy=AlbumArtist,Album,ParentIndexNumber,IndexNumber,SortName&SortOrder=Ascending';
+    const albumFields = '&Fields=Genres,ProductionYear,AlbumArtist,Artists,ChildCount&SortBy=SortName&SortOrder=Ascending';
+    const artistFields = '&Fields=Genres,Overview,ChildCount&SortBy=SortName&SortOrder=Ascending';
 
     // 1. Fetch remaining native Artists
     while (artists.length < totalArtists && syncGen === this.activeSyncGeneration) {
@@ -1890,7 +1944,11 @@ export class JellyfinService {
       this.enrichTrackGenresFromAlbumsAndArtists(tracks, albums, artists);
       const finalOverridden = applyLocalLibraryOverrides(tracks, albums, artists);
       onProgress(
-        finalOverridden,
+        {
+          tracks: sortTracksDefault(finalOverridden.tracks),
+          albums: sortAlbumsDefault(finalOverridden.albums),
+          artists: sortArtistsDefault(finalOverridden.artists),
+        },
         {
           loadedTracks: finalOverridden.tracks.length,
           totalTracks: Math.max(totalTracks, finalOverridden.tracks.length),
@@ -1901,6 +1959,43 @@ export class JellyfinService {
           isComplete: true,
         }
       );
+    }
+  }
+
+  /**
+   * Attempts to upload custom artwork directly to the Jellyfin server item (/Items/{Id}/Images/Primary).
+   * Even if the user lacks Jellyfin admin image permissions, local artwork override always succeeds.
+   */
+  public async uploadItemImage(itemId: string, dataUrl: string): Promise<boolean> {
+    if (
+      this.config.isDemoMode ||
+      !this.config.token ||
+      !itemId ||
+      itemId.startsWith('alb-') ||
+      itemId.startsWith('art-') ||
+      itemId.startsWith('aa-') ||
+      itemId.startsWith('trk-')
+    ) {
+      return false;
+    }
+    try {
+      const match = dataUrl.match(/^data:(image\/[a-zA-Z0-9+.-]+);base64,(.+)$/);
+      if (!match) return false;
+      const mimeType = match[1];
+      const base64Body = match[2];
+      const cleanUrl = this.normalizeUrl(this.config.url);
+      const res = await this.request(cleanUrl, `/Items/${encodeURIComponent(itemId)}/Images/Primary`, {
+        method: 'POST',
+        token: this.config.token,
+        forceProxy: this.config.useProxy,
+        headers: {
+          'Content-Type': mimeType,
+        },
+        body: base64Body,
+      });
+      return res.ok;
+    } catch {
+      return false;
     }
   }
 
